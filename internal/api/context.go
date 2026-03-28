@@ -6,6 +6,10 @@ import (
 	"github.com/corbie79/miraeboy/internal/auth"
 )
 
+type contextKey string
+
+const claimsKey contextKey = "claims"
+
 func contextWithClaims(ctx context.Context, claims *auth.Claims) context.Context {
 	return context.WithValue(ctx, claimsKey, claims)
 }

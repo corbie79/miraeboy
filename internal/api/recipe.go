@@ -5,10 +5,12 @@ import (
 	"net/http"
 )
 
-// GET /v2/conans/search?q=<query>
+// GET /{context}/v2/conans/search?q=<query>
 func (s *Server) handleRecipeSearch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.PathValue("context")
 	query := r.URL.Query().Get("q")
-	results, err := s.store.Search(query)
+
+	results, err := s.store.Search(ctx, query)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -19,10 +21,10 @@ func (s *Server) handleRecipeSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
-// GET /v2/conans/{name}/{version}/{username}/{channel}/revisions
+// GET /{context}/v2/conans/{name}/{version}/{username}/{channel}/revisions
 func (s *Server) handleListRecipeRevisions(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel := recipeParams(r)
-	revs, err := s.store.GetRecipeRevisions(name, version, username, channel)
+	ctx, name, version, username, channel := recipeParams(r)
+	revs, err := s.store.GetRecipeRevisions(ctx, name, version, username, channel)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -30,10 +32,10 @@ func (s *Server) handleListRecipeRevisions(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"revisions": revs})
 }
 
-// GET /v2/conans/{name}/{version}/{username}/{channel}/revisions/latest
+// GET /{context}/v2/conans/{name}/{version}/{username}/{channel}/revisions/latest
 func (s *Server) handleLatestRecipeRevision(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel := recipeParams(r)
-	revs, err := s.store.GetRecipeRevisions(name, version, username, channel)
+	ctx, name, version, username, channel := recipeParams(r)
+	revs, err := s.store.GetRecipeRevisions(ctx, name, version, username, channel)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -45,17 +47,16 @@ func (s *Server) handleLatestRecipeRevision(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, revs[0])
 }
 
-// GET /v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files
+// GET /{context}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files
 func (s *Server) handleListRecipeFiles(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel := recipeParams(r)
+	ctx, name, version, username, channel := recipeParams(r)
 	rrev := r.PathValue("rrev")
 
-	if !s.store.RecipeRevisionExists(name, version, username, channel, rrev) {
+	if !s.store.RecipeRevisionExists(ctx, name, version, username, channel, rrev) {
 		jsonError(w, http.StatusNotFound, "revision not found")
 		return
 	}
-
-	files, err := s.store.ListRecipeFiles(name, version, username, channel, rrev)
+	files, err := s.store.ListRecipeFiles(ctx, name, version, username, channel, rrev)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -63,13 +64,13 @@ func (s *Server) handleListRecipeFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"files": files})
 }
 
-// GET /v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files/{filename...}
+// GET /{context}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files/{filename...}
 func (s *Server) handleDownloadRecipeFile(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel := recipeParams(r)
+	ctx, name, version, username, channel := recipeParams(r)
 	rrev := r.PathValue("rrev")
 	filename := r.PathValue("filename")
 
-	rc, size, err := s.store.GetRecipeFile(name, version, username, channel, rrev, filename)
+	rc, size, err := s.store.GetRecipeFile(ctx, name, version, username, channel, rrev, filename)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, "file not found")
 		return
@@ -82,40 +83,40 @@ func (s *Server) handleDownloadRecipeFile(w http.ResponseWriter, r *http.Request
 	streamBody(w, rc)
 }
 
-// PUT /v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files/{filename...}
+// PUT /{context}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files/{filename...}
 func (s *Server) handleUploadRecipeFile(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel := recipeParams(r)
+	ctx, name, version, username, channel := recipeParams(r)
 	rrev := r.PathValue("rrev")
 	filename := r.PathValue("filename")
 
-	if err := s.store.PutRecipeFile(name, version, username, channel, rrev, filename, r.Body); err != nil {
+	if err := s.store.PutRecipeFile(ctx, name, version, username, channel, rrev, filename, r.Body); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.store.AddRecipeRevision(name, version, username, channel, rrev); err != nil {
+	if err := s.store.AddRecipeRevision(ctx, name, version, username, channel, rrev); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
 }
 
-// DELETE /v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}
+// DELETE /{context}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}
 func (s *Server) handleDeleteRecipeRevision(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel := recipeParams(r)
+	ctx, name, version, username, channel := recipeParams(r)
 	rrev := r.PathValue("rrev")
 
-	if !s.store.RecipeRevisionExists(name, version, username, channel, rrev) {
+	if !s.store.RecipeRevisionExists(ctx, name, version, username, channel, rrev) {
 		jsonError(w, http.StatusNotFound, "revision not found")
 		return
 	}
-	if err := s.store.DeleteRecipeRevision(name, version, username, channel, rrev); err != nil {
+	if err := s.store.DeleteRecipeRevision(ctx, name, version, username, channel, rrev); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
-func recipeParams(r *http.Request) (name, version, username, channel string) {
-	return r.PathValue("name"), r.PathValue("version"),
+func recipeParams(r *http.Request) (ctx, name, version, username, channel string) {
+	return r.PathValue("context"), r.PathValue("name"), r.PathValue("version"),
 		r.PathValue("username"), r.PathValue("channel")
 }

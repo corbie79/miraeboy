@@ -12,31 +12,43 @@ import (
 	"time"
 )
 
-// Revision represents a single revision entry stored in revisions.json
+// Revision represents a single revision entry stored in revisions.json.
 type Revision struct {
 	Revision string    `json:"revision"`
 	Time     time.Time `json:"time"`
+}
+
+// ContextRecord represents a dynamically-created context (stored in _contexts/contexts.json).
+type ContextRecord struct {
+	Name            string    `json:"name"`
+	Description     string    `json:"description"`
+	AnonymousAccess string    `json:"anonymous_access"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // Storage manages all package files on the local filesystem.
 //
 // Directory layout:
 //
-//	{base}/{name}/{version}/{username}/{channel}/
-//	  recipe_revisions.json           ← []Revision
-//	  {rrev}/
-//	    conanfile.py
-//	    conanmanifest.txt
-//	    ...
-//	  packages/
-//	    {pkgid}/
+//	{base}/
+//	  _contexts/
+//	    contexts.json                ← dynamically created contexts
+//	  {context}/
+//	    {name}/{version}/{username}/{channel}/
+//	      recipe_revisions.json      ← []Revision
 //	      {rrev}/
-//	        pkg_revisions.json         ← []Revision
-//	        {prev}/
-//	          conaninfo.txt
-//	          conanmanifest.txt
-//	          conan_package.tgz
-//	          ...
+//	        conanfile.py
+//	        conanmanifest.txt
+//	        ...
+//	      packages/
+//	        {pkgid}/
+//	          {rrev}/
+//	            pkg_revisions.json   ← []Revision
+//	            {prev}/
+//	              conaninfo.txt
+//	              conanmanifest.txt
+//	              conan_package.tgz
+//	              ...
 type Storage struct {
 	base string
 	mu   sync.RWMutex
@@ -51,57 +63,164 @@ func New(base string) (*Storage, error) {
 
 // ─── paths ────────────────────────────────────────────────────────────────────
 
-func (s *Storage) refDir(name, version, username, channel string) string {
-	return filepath.Join(s.base, name, version, username, channel)
+func (s *Storage) refDir(context, name, version, username, channel string) string {
+	return filepath.Join(s.base, context, name, version, username, channel)
 }
 
-func (s *Storage) recipeRevFile(name, version, username, channel string) string {
-	return filepath.Join(s.refDir(name, version, username, channel), "recipe_revisions.json")
+func (s *Storage) recipeRevFile(context, name, version, username, channel string) string {
+	return filepath.Join(s.refDir(context, name, version, username, channel), "recipe_revisions.json")
 }
 
-func (s *Storage) recipeFilesDir(name, version, username, channel, rrev string) string {
-	return filepath.Join(s.refDir(name, version, username, channel), rrev)
+func (s *Storage) recipeFilesDir(context, name, version, username, channel, rrev string) string {
+	return filepath.Join(s.refDir(context, name, version, username, channel), rrev)
 }
 
-func (s *Storage) pkgRevFile(name, version, username, channel, pkgid, rrev string) string {
-	return filepath.Join(s.refDir(name, version, username, channel), "packages", pkgid, rrev, "pkg_revisions.json")
+func (s *Storage) pkgRevFile(context, name, version, username, channel, pkgid, rrev string) string {
+	return filepath.Join(s.refDir(context, name, version, username, channel), "packages", pkgid, rrev, "pkg_revisions.json")
 }
 
-func (s *Storage) pkgFilesDir(name, version, username, channel, pkgid, rrev, prev string) string {
-	return filepath.Join(s.refDir(name, version, username, channel), "packages", pkgid, rrev, prev)
+func (s *Storage) pkgFilesDir(context, name, version, username, channel, pkgid, rrev, prev string) string {
+	return filepath.Join(s.refDir(context, name, version, username, channel), "packages", pkgid, rrev, prev)
+}
+
+// ─── context registry ─────────────────────────────────────────────────────────
+
+func (s *Storage) contextsFile() string {
+	return filepath.Join(s.base, "_contexts", "contexts.json")
+}
+
+// ContextExists checks whether a context directory exists OR is registered dynamically.
+func (s *Storage) ContextExists(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	// Check if context directory exists in storage
+	if _, err := os.Stat(filepath.Join(s.base, name)); err == nil {
+		return true
+	}
+	// Check dynamic registry
+	recs, err := s.readContextRegistry()
+	if err != nil {
+		return false
+	}
+	for _, r := range recs {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Storage) ListDynamicContexts() ([]ContextRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.readContextRegistry()
+}
+
+func (s *Storage) AddDynamicContext(name, description, anonymousAccess string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	recs, err := s.readContextRegistry()
+	if err != nil {
+		return err
+	}
+	for _, r := range recs {
+		if r.Name == name {
+			return fmt.Errorf("context %q already exists", name)
+		}
+	}
+	recs = append(recs, ContextRecord{
+		Name:            name,
+		Description:     description,
+		AnonymousAccess: anonymousAccess,
+		CreatedAt:       time.Now().UTC(),
+	})
+
+	// Ensure the context directory exists
+	if err := os.MkdirAll(filepath.Join(s.base, name), 0755); err != nil {
+		return err
+	}
+	return s.writeContextRegistry(recs)
+}
+
+func (s *Storage) DeleteDynamicContext(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	recs, err := s.readContextRegistry()
+	if err != nil {
+		return err
+	}
+	filtered := recs[:0]
+	for _, r := range recs {
+		if r.Name != name {
+			filtered = append(filtered, r)
+		}
+	}
+	if err := s.writeContextRegistry(filtered); err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(s.base, name))
+}
+
+func (s *Storage) readContextRegistry() ([]ContextRecord, error) {
+	data, err := os.ReadFile(s.contextsFile())
+	if os.IsNotExist(err) {
+		return []ContextRecord{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var recs []ContextRecord
+	if err := json.Unmarshal(data, &recs); err != nil {
+		return nil, err
+	}
+	return recs, nil
+}
+
+func (s *Storage) writeContextRegistry(recs []ContextRecord) error {
+	dir := filepath.Dir(s.contextsFile())
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(recs, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.contextsFile(), data, 0644)
 }
 
 // ─── recipe revisions ─────────────────────────────────────────────────────────
 
-func (s *Storage) GetRecipeRevisions(name, version, username, channel string) ([]Revision, error) {
+func (s *Storage) GetRecipeRevisions(context, name, version, username, channel string) ([]Revision, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return readRevisions(s.recipeRevFile(name, version, username, channel))
+	return readRevisions(s.recipeRevFile(context, name, version, username, channel))
 }
 
-func (s *Storage) AddRecipeRevision(name, version, username, channel, rrev string) error {
+func (s *Storage) AddRecipeRevision(context, name, version, username, channel, rrev string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := s.refDir(name, version, username, channel)
+	dir := s.refDir(context, name, version, username, channel)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	return appendRevision(s.recipeRevFile(name, version, username, channel), rrev)
+	return appendRevision(s.recipeRevFile(context, name, version, username, channel), rrev)
 }
 
-func (s *Storage) DeleteRecipeRevision(name, version, username, channel, rrev string) error {
+func (s *Storage) DeleteRecipeRevision(context, name, version, username, channel, rrev string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.RemoveAll(s.recipeFilesDir(name, version, username, channel, rrev)); err != nil {
+	if err := os.RemoveAll(s.recipeFilesDir(context, name, version, username, channel, rrev)); err != nil {
 		return err
 	}
-	return removeRevision(s.recipeRevFile(name, version, username, channel), rrev)
+	return removeRevision(s.recipeRevFile(context, name, version, username, channel), rrev)
 }
 
-func (s *Storage) RecipeRevisionExists(name, version, username, channel, rrev string) bool {
+func (s *Storage) RecipeRevisionExists(context, name, version, username, channel, rrev string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	revs, err := readRevisions(s.recipeRevFile(name, version, username, channel))
+	revs, err := readRevisions(s.recipeRevFile(context, name, version, username, channel))
 	if err != nil {
 		return false
 	}
@@ -115,16 +234,16 @@ func (s *Storage) RecipeRevisionExists(name, version, username, channel, rrev st
 
 // ─── recipe files ─────────────────────────────────────────────────────────────
 
-func (s *Storage) ListRecipeFiles(name, version, username, channel, rrev string) (map[string]string, error) {
+func (s *Storage) ListRecipeFiles(context, name, version, username, channel, rrev string) (map[string]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return listFiles(s.recipeFilesDir(name, version, username, channel, rrev))
+	return listFiles(s.recipeFilesDir(context, name, version, username, channel, rrev))
 }
 
-func (s *Storage) GetRecipeFile(name, version, username, channel, rrev, filename string) (io.ReadCloser, int64, error) {
+func (s *Storage) GetRecipeFile(context, name, version, username, channel, rrev, filename string) (io.ReadCloser, int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	path, err := safeJoin(s.recipeFilesDir(name, version, username, channel, rrev), filename)
+	path, err := safeJoin(s.recipeFilesDir(context, name, version, username, channel, rrev), filename)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -136,44 +255,44 @@ func (s *Storage) GetRecipeFile(name, version, username, channel, rrev, filename
 	return f, info.Size(), nil
 }
 
-func (s *Storage) PutRecipeFile(name, version, username, channel, rrev, filename string, r io.Reader) error {
+func (s *Storage) PutRecipeFile(context, name, version, username, channel, rrev, filename string, r io.Reader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := s.recipeFilesDir(name, version, username, channel, rrev)
+	dir := s.recipeFilesDir(context, name, version, username, channel, rrev)
 	return writeFile(dir, filename, r)
 }
 
 // ─── package revisions ────────────────────────────────────────────────────────
 
-func (s *Storage) GetPackageRevisions(name, version, username, channel, pkgid, rrev string) ([]Revision, error) {
+func (s *Storage) GetPackageRevisions(context, name, version, username, channel, pkgid, rrev string) ([]Revision, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return readRevisions(s.pkgRevFile(name, version, username, channel, pkgid, rrev))
+	return readRevisions(s.pkgRevFile(context, name, version, username, channel, pkgid, rrev))
 }
 
-func (s *Storage) AddPackageRevision(name, version, username, channel, pkgid, rrev, prev string) error {
+func (s *Storage) AddPackageRevision(context, name, version, username, channel, pkgid, rrev, prev string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := filepath.Dir(s.pkgRevFile(name, version, username, channel, pkgid, rrev))
+	dir := filepath.Dir(s.pkgRevFile(context, name, version, username, channel, pkgid, rrev))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	return appendRevision(s.pkgRevFile(name, version, username, channel, pkgid, rrev), prev)
+	return appendRevision(s.pkgRevFile(context, name, version, username, channel, pkgid, rrev), prev)
 }
 
-func (s *Storage) DeletePackageRevision(name, version, username, channel, pkgid, rrev, prev string) error {
+func (s *Storage) DeletePackageRevision(context, name, version, username, channel, pkgid, rrev, prev string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.RemoveAll(s.pkgFilesDir(name, version, username, channel, pkgid, rrev, prev)); err != nil {
+	if err := os.RemoveAll(s.pkgFilesDir(context, name, version, username, channel, pkgid, rrev, prev)); err != nil {
 		return err
 	}
-	return removeRevision(s.pkgRevFile(name, version, username, channel, pkgid, rrev), prev)
+	return removeRevision(s.pkgRevFile(context, name, version, username, channel, pkgid, rrev), prev)
 }
 
-func (s *Storage) PackageRevisionExists(name, version, username, channel, pkgid, rrev, prev string) bool {
+func (s *Storage) PackageRevisionExists(context, name, version, username, channel, pkgid, rrev, prev string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	revs, err := readRevisions(s.pkgRevFile(name, version, username, channel, pkgid, rrev))
+	revs, err := readRevisions(s.pkgRevFile(context, name, version, username, channel, pkgid, rrev))
 	if err != nil {
 		return false
 	}
@@ -187,16 +306,16 @@ func (s *Storage) PackageRevisionExists(name, version, username, channel, pkgid,
 
 // ─── package files ────────────────────────────────────────────────────────────
 
-func (s *Storage) ListPackageFiles(name, version, username, channel, pkgid, rrev, prev string) (map[string]string, error) {
+func (s *Storage) ListPackageFiles(context, name, version, username, channel, pkgid, rrev, prev string) (map[string]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return listFiles(s.pkgFilesDir(name, version, username, channel, pkgid, rrev, prev))
+	return listFiles(s.pkgFilesDir(context, name, version, username, channel, pkgid, rrev, prev))
 }
 
-func (s *Storage) GetPackageFile(name, version, username, channel, pkgid, rrev, prev, filename string) (io.ReadCloser, int64, error) {
+func (s *Storage) GetPackageFile(context, name, version, username, channel, pkgid, rrev, prev, filename string) (io.ReadCloser, int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	path, err := safeJoin(s.pkgFilesDir(name, version, username, channel, pkgid, rrev, prev), filename)
+	path, err := safeJoin(s.pkgFilesDir(context, name, version, username, channel, pkgid, rrev, prev), filename)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -208,52 +327,46 @@ func (s *Storage) GetPackageFile(name, version, username, channel, pkgid, rrev, 
 	return f, info.Size(), nil
 }
 
-func (s *Storage) PutPackageFile(name, version, username, channel, pkgid, rrev, prev, filename string, r io.Reader) error {
+func (s *Storage) PutPackageFile(context, name, version, username, channel, pkgid, rrev, prev, filename string, r io.Reader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := s.pkgFilesDir(name, version, username, channel, pkgid, rrev, prev)
+	dir := s.pkgFilesDir(context, name, version, username, channel, pkgid, rrev, prev)
 	return writeFile(dir, filename, r)
 }
 
 // ─── search ───────────────────────────────────────────────────────────────────
 
-// Search returns package references matching a glob-style query.
-// query format: "name*", "name/version@user/channel", etc.
-func (s *Storage) Search(query string) ([]string, error) {
+// Search returns package references matching a glob-style query within a context.
+func (s *Storage) Search(context, query string) ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	contextDir := filepath.Join(s.base, context)
 	var results []string
 
-	entries, err := os.ReadDir(s.base)
+	names, err := os.ReadDir(contextDir)
 	if err != nil {
 		return nil, nil
 	}
 
-	for _, nameEntry := range entries {
-		if !nameEntry.IsDir() {
+	for _, nameEntry := range names {
+		if !nameEntry.IsDir() || strings.HasPrefix(nameEntry.Name(), "_") {
 			continue
 		}
 		name := nameEntry.Name()
-
-		versionsDir := filepath.Join(s.base, name)
-		versions, _ := os.ReadDir(versionsDir)
+		versions, _ := os.ReadDir(filepath.Join(contextDir, name))
 		for _, vEntry := range versions {
 			if !vEntry.IsDir() {
 				continue
 			}
 			version := vEntry.Name()
-
-			usersDir := filepath.Join(versionsDir, version)
-			users, _ := os.ReadDir(usersDir)
+			users, _ := os.ReadDir(filepath.Join(contextDir, name, version))
 			for _, uEntry := range users {
 				if !uEntry.IsDir() {
 					continue
 				}
 				username := uEntry.Name()
-
-				channelsDir := filepath.Join(usersDir, username)
-				channels, _ := os.ReadDir(channelsDir)
+				channels, _ := os.ReadDir(filepath.Join(contextDir, name, version, username))
 				for _, cEntry := range channels {
 					if !cEntry.IsDir() {
 						continue
@@ -273,15 +386,12 @@ func (s *Storage) Search(query string) ([]string, error) {
 }
 
 // matchQuery checks if a reference matches the Conan search query.
-// Supports "*" as wildcard and patterns like "name*", "name/version@*".
 func matchQuery(query, ref, name, version, username, channel string) bool {
 	if query == "" || query == "*" {
 		return true
 	}
-	// Simple glob: replace * with a placeholder then match
 	pattern := strings.ToLower(query)
 	target := strings.ToLower(ref)
-
 	return globMatch(pattern, target) ||
 		globMatch(pattern, strings.ToLower(name)) ||
 		globMatch(pattern, strings.ToLower(name+"/"+version))
@@ -334,7 +444,6 @@ func appendRevision(path, rev string) error {
 	if err != nil {
 		return err
 	}
-	// Deduplicate: remove existing entry with same revision
 	filtered := revs[:0]
 	for _, r := range revs {
 		if r.Revision != rev {
@@ -342,7 +451,6 @@ func appendRevision(path, rev string) error {
 		}
 	}
 	filtered = append(filtered, Revision{Revision: rev, Time: time.Now().UTC()})
-	// Latest first
 	sort.Slice(filtered, func(i, j int) bool {
 		return filtered[i].Time.After(filtered[j].Time)
 	})
@@ -400,7 +508,6 @@ func safeJoin(dir, filename string) (string, error) {
 		return "", fmt.Errorf("invalid filename: %s", filename)
 	}
 	path := filepath.Join(dir, clean)
-	// Ensure the resolved path is still under dir
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return "", err

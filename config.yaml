@@ -4,11 +4,37 @@ server:
 
 auth:
   jwt_secret: "change-me-in-production"
-  anonymous: false   # true 로 바꾸면 읽기 전용 비인증 허용
+  anonymous: false
   users:
     - username: "admin"
       password: "admin123"
-      admin: true
-    - username: "reader"
-      password: "reader123"
+      admin: true   # 모든 컨텍스트에 admin 권한 자동 부여
+
+    - username: "dev"
+      password: "dev123"
       admin: false
+      contexts:
+        - name: "conan-local"
+          permission: "readwrite"   # 업로드/다운로드 가능
+        - name: "conan-stable"
+          permission: "read"        # 다운로드만 가능
+
+    - username: "ci"
+      password: "ci123"
+      admin: false
+      contexts:
+        - name: "conan-local"
+          permission: "readwrite"
+        - name: "conan-stable"
+          permission: "readwrite"
+
+# config.yaml 에 정의된 컨텍스트 (정적)
+# API(/api/contexts)로 동적 생성도 가능
+contexts:
+  - name: "conan-local"
+    description: "개발용 로컬 패키지"
+    anonymous_access: "none"
+
+  - name: "conan-stable"
+    description: "안정 릴리즈 패키지"
+    anonymous_access: "read"   # 인증 없이 다운로드 허용

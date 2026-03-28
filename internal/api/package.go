@@ -6,10 +6,10 @@ import (
 	"net/http"
 )
 
-// GET /v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/packages/{pkgid}/revisions
+// GET /{context}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/packages/{pkgid}/revisions
 func (s *Server) handleListPackageRevisions(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel, rrev, pkgid := pkgParams(r)
-	revs, err := s.store.GetPackageRevisions(name, version, username, channel, pkgid, rrev)
+	ctx, name, version, username, channel, rrev, pkgid := pkgParams(r)
+	revs, err := s.store.GetPackageRevisions(ctx, name, version, username, channel, pkgid, rrev)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -19,8 +19,8 @@ func (s *Server) handleListPackageRevisions(w http.ResponseWriter, r *http.Reque
 
 // GET .../packages/{pkgid}/revisions/latest
 func (s *Server) handleLatestPackageRevision(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel, rrev, pkgid := pkgParams(r)
-	revs, err := s.store.GetPackageRevisions(name, version, username, channel, pkgid, rrev)
+	ctx, name, version, username, channel, rrev, pkgid := pkgParams(r)
+	revs, err := s.store.GetPackageRevisions(ctx, name, version, username, channel, pkgid, rrev)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -34,14 +34,14 @@ func (s *Server) handleLatestPackageRevision(w http.ResponseWriter, r *http.Requ
 
 // GET .../packages/{pkgid}/revisions/{prev}/files
 func (s *Server) handleListPackageFiles(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel, rrev, pkgid := pkgParams(r)
+	ctx, name, version, username, channel, rrev, pkgid := pkgParams(r)
 	prev := r.PathValue("prev")
 
-	if !s.store.PackageRevisionExists(name, version, username, channel, pkgid, rrev, prev) {
+	if !s.store.PackageRevisionExists(ctx, name, version, username, channel, pkgid, rrev, prev) {
 		jsonError(w, http.StatusNotFound, "package revision not found")
 		return
 	}
-	files, err := s.store.ListPackageFiles(name, version, username, channel, pkgid, rrev, prev)
+	files, err := s.store.ListPackageFiles(ctx, name, version, username, channel, pkgid, rrev, prev)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -51,11 +51,11 @@ func (s *Server) handleListPackageFiles(w http.ResponseWriter, r *http.Request) 
 
 // GET .../packages/{pkgid}/revisions/{prev}/files/{filename...}
 func (s *Server) handleDownloadPackageFile(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel, rrev, pkgid := pkgParams(r)
+	ctx, name, version, username, channel, rrev, pkgid := pkgParams(r)
 	prev := r.PathValue("prev")
 	filename := r.PathValue("filename")
 
-	rc, size, err := s.store.GetPackageFile(name, version, username, channel, pkgid, rrev, prev, filename)
+	rc, size, err := s.store.GetPackageFile(ctx, name, version, username, channel, pkgid, rrev, prev, filename)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, "file not found")
 		return
@@ -70,15 +70,15 @@ func (s *Server) handleDownloadPackageFile(w http.ResponseWriter, r *http.Reques
 
 // PUT .../packages/{pkgid}/revisions/{prev}/files/{filename...}
 func (s *Server) handleUploadPackageFile(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel, rrev, pkgid := pkgParams(r)
+	ctx, name, version, username, channel, rrev, pkgid := pkgParams(r)
 	prev := r.PathValue("prev")
 	filename := r.PathValue("filename")
 
-	if err := s.store.PutPackageFile(name, version, username, channel, pkgid, rrev, prev, filename, r.Body); err != nil {
+	if err := s.store.PutPackageFile(ctx, name, version, username, channel, pkgid, rrev, prev, filename, r.Body); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.store.AddPackageRevision(name, version, username, channel, pkgid, rrev, prev); err != nil {
+	if err := s.store.AddPackageRevision(ctx, name, version, username, channel, pkgid, rrev, prev); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -87,22 +87,22 @@ func (s *Server) handleUploadPackageFile(w http.ResponseWriter, r *http.Request)
 
 // DELETE .../packages/{pkgid}/revisions/{prev}
 func (s *Server) handleDeletePackageRevision(w http.ResponseWriter, r *http.Request) {
-	name, version, username, channel, rrev, pkgid := pkgParams(r)
+	ctx, name, version, username, channel, rrev, pkgid := pkgParams(r)
 	prev := r.PathValue("prev")
 
-	if !s.store.PackageRevisionExists(name, version, username, channel, pkgid, rrev, prev) {
+	if !s.store.PackageRevisionExists(ctx, name, version, username, channel, pkgid, rrev, prev) {
 		jsonError(w, http.StatusNotFound, "package revision not found")
 		return
 	}
-	if err := s.store.DeletePackageRevision(name, version, username, channel, pkgid, rrev, prev); err != nil {
+	if err := s.store.DeletePackageRevision(ctx, name, version, username, channel, pkgid, rrev, prev); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
-func pkgParams(r *http.Request) (name, version, username, channel, rrev, pkgid string) {
-	return r.PathValue("name"), r.PathValue("version"),
+func pkgParams(r *http.Request) (ctx, name, version, username, channel, rrev, pkgid string) {
+	return r.PathValue("context"), r.PathValue("name"), r.PathValue("version"),
 		r.PathValue("username"), r.PathValue("channel"),
 		r.PathValue("rrev"), r.PathValue("pkgid")
 }
