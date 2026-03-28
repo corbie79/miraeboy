@@ -14,18 +14,24 @@ import (
 )
 
 type Server struct {
-	cfg   *config.Config
-	store *storage.Storage
-	mux   *http.ServeMux
-	webFS fs.FS // compiled web UI assets (may be nil)
+	cfg      *config.Config
+	store    *storage.Storage
+	mux      *http.ServeMux
+	webFS    fs.FS  // compiled web UI assets (may be nil)
+	nodeRole string // "primary" or "replica"
 }
 
 func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server {
+	role := cfg.Server.NodeRole
+	if role == "" {
+		role = "primary"
+	}
 	s := &Server{
-		cfg:   cfg,
-		store: store,
-		mux:   http.NewServeMux(),
-		webFS: webFS,
+		cfg:      cfg,
+		store:    store,
+		mux:      http.NewServeMux(),
+		webFS:    webFS,
+		nodeRole: role,
 	}
 	s.seedRepos()
 	s.registerRoutes()
@@ -95,17 +101,17 @@ func (s *Server) registerRoutes() {
 	m.HandleFunc("GET /ping", s.handlePing)
 
 	// ── Repository management API ─────────────────────────────────────────────
-	m.HandleFunc("POST /api/repos", s.adminOnly(s.handleCreateRepo))
+	m.HandleFunc("POST /api/repos", s.replicaReadOnly(s.adminOnly(s.handleCreateRepo)))
 	m.HandleFunc("GET /api/repos", s.adminOnly(s.handleListRepos))
 	m.HandleFunc("GET /api/repos/{repository}", s.adminOnly(s.handleGetRepo))
-	m.HandleFunc("PATCH /api/repos/{repository}", s.requireRepoOwnerOrAdmin(s.handleUpdateRepo))
-	m.HandleFunc("DELETE /api/repos/{repository}", s.adminOnly(s.handleDeleteRepo))
+	m.HandleFunc("PATCH /api/repos/{repository}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleUpdateRepo)))
+	m.HandleFunc("DELETE /api/repos/{repository}", s.replicaReadOnly(s.adminOnly(s.handleDeleteRepo)))
 
 	// ── Repository member management ──────────────────────────────────────────
-	m.HandleFunc("POST /api/repos/{repository}/members", s.requireRepoOwnerOrAdmin(s.handleInviteMember))
+	m.HandleFunc("POST /api/repos/{repository}/members", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleInviteMember)))
 	m.HandleFunc("GET /api/repos/{repository}/members", s.requireRepoOwnerOrAdmin(s.handleListMembers))
-	m.HandleFunc("PUT /api/repos/{repository}/members/{username}", s.requireRepoOwnerOrAdmin(s.handleUpdateMember))
-	m.HandleFunc("DELETE /api/repos/{repository}/members/{username}", s.requireRepoOwnerOrAdmin(s.handleRemoveMember))
+	m.HandleFunc("PUT /api/repos/{repository}/members/{username}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleUpdateMember)))
+	m.HandleFunc("DELETE /api/repos/{repository}/members/{username}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleRemoveMember)))
 
 	// ── Conan v2 endpoints ────────────────────────────────────────────────────
 	// Conan client remote URL: http://server:9300/api/conan/{repository}
@@ -128,9 +134,9 @@ func (s *Server) registerRoutes() {
 	m.HandleFunc("GET "+ref+"/revisions/{rrev}/files/{filename...}",
 		s.requirePermission(auth.PermRead, s.handleDownloadRecipeFile))
 	m.HandleFunc("PUT "+ref+"/revisions/{rrev}/files/{filename...}",
-		s.requirePermission(auth.PermWrite, s.handleUploadRecipeFile))
+		s.replicaReadOnly(s.requirePermission(auth.PermWrite, s.handleUploadRecipeFile)))
 	m.HandleFunc("DELETE "+ref+"/revisions/{rrev}",
-		s.requirePermission(auth.PermDelete, s.handleDeleteRecipeRevision))
+		s.replicaReadOnly(s.requirePermission(auth.PermDelete, s.handleDeleteRecipeRevision)))
 
 	pkg := ref + "/revisions/{rrev}/packages/{pkgid}"
 
@@ -143,9 +149,9 @@ func (s *Server) registerRoutes() {
 	m.HandleFunc("GET "+pkg+"/revisions/{prev}/files/{filename...}",
 		s.requirePermission(auth.PermRead, s.handleDownloadPackageFile))
 	m.HandleFunc("PUT "+pkg+"/revisions/{prev}/files/{filename...}",
-		s.requirePermission(auth.PermWrite, s.handleUploadPackageFile))
+		s.replicaReadOnly(s.requirePermission(auth.PermWrite, s.handleUploadPackageFile)))
 	m.HandleFunc("DELETE "+pkg+"/revisions/{prev}",
-		s.requirePermission(auth.PermDelete, s.handleDeletePackageRevision))
+		s.replicaReadOnly(s.requirePermission(auth.PermDelete, s.handleDeletePackageRevision)))
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

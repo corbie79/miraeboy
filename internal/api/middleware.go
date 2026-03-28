@@ -104,6 +104,23 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// replicaReadOnly blocks write requests (PUT, POST, DELETE, PATCH) when
+// this node is running in replica mode. Replica nodes are read-only; all
+// writes must go through the primary node.
+func (s *Server) replicaReadOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.nodeRole == "replica" {
+			switch r.Method {
+			case http.MethodPut, http.MethodPost, http.MethodDelete, http.MethodPatch:
+				jsonError(w, http.StatusServiceUnavailable,
+					"this node is read-only (replica); send write requests to the primary node")
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
 // extractClaims parses the Bearer token from the Authorization header.
 func (s *Server) extractClaims(w http.ResponseWriter, r *http.Request, required bool) (*auth.Claims, bool) {
 	header := r.Header.Get("Authorization")

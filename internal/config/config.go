@@ -37,9 +37,22 @@ type AuthConfig struct {
 	JWTSecret string `yaml:"jwt_secret"`
 }
 
+// S3Config holds S3-compatible object storage settings.
+// Leave Endpoint empty to disable S3 and fall back to local filesystem.
+type S3Config struct {
+	Endpoint        string `yaml:"endpoint"`
+	Bucket          string `yaml:"bucket"`
+	AccessKeyID     string `yaml:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key"`
+	UseSSL          bool   `yaml:"use_ssl"`
+	Region          string `yaml:"region"`
+}
+
 type ServerConfig struct {
-	Address     string `yaml:"address"`
-	StoragePath string `yaml:"storage_path"`
+	Address     string   `yaml:"address"`
+	StoragePath string   `yaml:"storage_path"`
+	NodeRole    string   `yaml:"node_role"` // "primary" (default) or "replica"
+	S3          S3Config `yaml:"s3"`
 }
 
 type Config struct {

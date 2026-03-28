@@ -275,6 +275,113 @@ data/
           ...
 ```
 
+## Active-Passive HA 구성 (S3 백엔드)
+
+두 노드가 동일한 S3 버킷을 공유합니다. 로드밸런서가 쓰기 요청은 Primary로, 읽기 요청은 양쪽으로 분산합니다.
+
+### 구성 개요
+
+```
+                 ┌─────────────────────────────────┐
+Conan Client ───►│  Load Balancer (nginx / HAProxy) │
+                 └──────────────┬──────────────────┘
+                                │
+              ┌─────────────────┼─────────────────┐
+              │ GET/HEAD        │                  │ PUT/DELETE/POST/PATCH
+              ▼                 ▼                  ▼
+       ┌──────────────┐  ┌──────────────┐         │
+       │ miraeboy      │  │ miraeboy      │◄────────┘
+       │ node-1        │  │ node-2        │
+       │ (replica)     │  │ (primary)     │
+       └──────┬───────┘  └──────┬────────┘
+              │                 │
+              └────────┬────────┘
+                       ▼
+              ┌─────────────────┐
+              │  S3 버킷          │
+              │  (MinIO / AWS)   │
+              └─────────────────┘
+```
+
+- **Primary** (`node_role: primary`): 읽기 + 쓰기 모두 처리
+- **Replica** (`node_role: replica`): 읽기만 처리. 쓰기 요청 수신 시 `503 Service Unavailable` 반환
+
+### config.yaml — Primary 노드
+
+```yaml
+server:
+  address: ":9300"
+  node_role: "primary"
+  s3:
+    endpoint: "minio.example.com:9000"
+    bucket: "miraeboy"
+    access_key_id: "access-key"
+    secret_access_key: "secret-key"
+    use_ssl: false
+    region: ""
+
+auth:
+  jwt_secret: "your-strong-secret-here"
+  users:
+    - username: "admin"
+      password: "strongpassword"
+      admin: true
+```
+
+### config.yaml — Replica 노드
+
+Primary와 동일하되 `node_role`만 변경합니다:
+
+```yaml
+server:
+  address: ":9300"
+  node_role: "replica"   # ← 이것만 다름
+  s3:
+    endpoint: "minio.example.com:9000"
+    bucket: "miraeboy"
+    access_key_id: "access-key"
+    secret_access_key: "secret-key"
+    use_ssl: false
+    region: ""
+
+auth:
+  jwt_secret: "your-strong-secret-here"   # Primary와 동일해야 JWT 검증 가능
+  users: ...
+```
+
+### nginx 라우팅 예시
+
+```nginx
+upstream primary {
+    server miraeboy-primary:9300;
+}
+
+upstream all_nodes {
+    server miraeboy-primary:9300;
+    server miraeboy-replica:9300;
+}
+
+server {
+    listen 9300;
+
+    # 쓰기 요청 → Primary만
+    location ~ ^/(api/conan/.*/v2/conans/.*/revisions/.*/files/|api/repos) {
+        limit_except GET HEAD {
+            proxy_pass http://primary;
+        }
+        proxy_pass http://all_nodes;
+    }
+
+    location / {
+        proxy_pass http://all_nodes;
+    }
+}
+```
+
+> **주의**: JWT secret은 모든 노드에서 동일해야 합니다. Primary에서 발급한 토큰을 Replica에서도 검증할 수 있습니다.
+
+---
+
 ## 개발
 
 ```bash
@@ -292,5 +399,6 @@ cd web && npm run dev
 | Backend | Go 1.22, `net/http` (표준 라이브러리) |
 | Auth | JWT (`golang-jwt/jwt/v5`) |
 | Config | YAML (`gopkg.in/yaml.v3`) |
+| Storage | 로컬 파일시스템 또는 S3 호환 (`minio-go/v7`) |
 | Frontend | Svelte 5, Vite, Tailwind CSS |
 | 배포 | 단일 바이너리 (`embed.FS`) |

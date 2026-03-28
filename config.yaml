@@ -1,6 +1,17 @@
 server:
   address: ":9300"
-  storage_path: "./data"
+  storage_path: "./data"   # 로컬 파일시스템 경로 (S3 사용 시 무시됨)
+  node_role: "primary"     # "primary" (기본값) 또는 "replica" (읽기 전용)
+
+  # S3 호환 스토리지 (MinIO, AWS S3, NCP Object Storage 등)
+  # endpoint를 비워두면 로컬 파일시스템 backend를 사용합니다.
+  # s3:
+  #   endpoint: "minio.example.com:9000"
+  #   bucket: "miraeboy"
+  #   access_key_id: "minio-access-key"
+  #   secret_access_key: "minio-secret-key"
+  #   use_ssl: false
+  #   region: ""             # AWS S3는 "ap-northeast-2" 등 지정
 
 auth:
   jwt_secret: "change-me-in-production"
