@@ -1,5 +1,7 @@
 # miraeboy
 
+**한국어** | [English](README.en.md)
+
 Conan v2 호환 사내 패키지 서버. Go로 작성된 단일 바이너리이며 웹 관리 UI가 내장되어 있습니다.
 
 ## 특징
