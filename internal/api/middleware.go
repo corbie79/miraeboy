@@ -7,45 +7,40 @@ import (
 	"github.com/corbie79/miraeboy/internal/auth"
 )
 
-// auth validates the Bearer token. For routes with no context (global routes).
-func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := s.extractClaims(w, r, false)
-		if !ok {
-			return
-		}
-		if claims != nil {
-			r = r.WithContext(contextWithClaims(r.Context(), claims))
-		}
-		next(w, r)
-	}
-}
-
-// requirePermission validates the Bearer token AND checks that the user has
-// at least minPerm on the context named in the {context} path segment.
-// It also handles anonymous access based on the context's configuration.
+// requirePermission validates the Bearer token and checks that the user has
+// at least minPerm on the package group named in the {group} path segment.
+// Anonymous access is allowed when the group's anonymous_access meets minPerm.
+// On success the GroupRecord is stored in the request context for handlers.
 func (s *Server) requirePermission(minPerm auth.Permission, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		contextName := r.PathValue("context")
+		groupName := r.PathValue("group")
 
-		// Validate context name to prevent path traversal
-		if strings.ContainsAny(contextName, "/\\..") || contextName == "" {
-			jsonError(w, http.StatusBadRequest, "invalid context name")
+		if strings.ContainsAny(groupName, "/\\.") || groupName == "" {
+			jsonError(w, http.StatusBadRequest, "invalid group name")
 			return
 		}
 
-		// Check context exists (config-defined or dynamically created)
-		if !s.contextExists(contextName) {
-			jsonError(w, http.StatusNotFound, "context not found: "+contextName)
+		// Load group (also verifies existence)
+		grp, err := s.store.GetGroup(groupName)
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if grp == nil {
+			jsonError(w, http.StatusNotFound, "group not found: "+groupName)
 			return
 		}
 
 		header := r.Header.Get("Authorization")
 
 		if header == "" {
-			// No token: check anonymous access
-			anonPerm := s.cfg.AnonymousPermission(contextName)
+			// Unauthenticated: check anonymous access setting
+			anonPerm := auth.Permission(grp.AnonymousAccess)
+			if anonPerm == "" {
+				anonPerm = auth.PermNone
+			}
 			if anonPerm.Satisfies(minPerm) {
+				r = r.WithContext(contextWithGroup(r.Context(), grp))
 				next(w, r)
 				return
 			}
@@ -58,17 +53,44 @@ func (s *Server) requirePermission(minPerm auth.Permission, next http.HandlerFun
 			return
 		}
 
-		if !claims.PermissionFor(contextName).Satisfies(minPerm) {
-			jsonError(w, http.StatusForbidden, "insufficient permission on context: "+contextName)
+		if !claims.GroupPermission(groupName).Satisfies(minPerm) {
+			jsonError(w, http.StatusForbidden, "insufficient permission on group: "+groupName)
 			return
 		}
 
-		r = r.WithContext(contextWithClaims(r.Context(), claims))
-		next(w, r)
+		ctx := contextWithClaims(r.Context(), claims)
+		ctx = contextWithGroup(ctx, grp)
+		next(w, r.WithContext(ctx))
 	}
 }
 
-// adminOnly validates the Bearer token and requires global admin role.
+// requireGroupOwnerOrAdmin validates the token and requires that the user is
+// either the global admin or has PermOwner on the group in the path.
+// Used for group settings and member management endpoints.
+func (s *Server) requireGroupOwnerOrAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := s.extractClaims(w, r, true)
+		if !ok {
+			return
+		}
+
+		groupName := r.PathValue("group")
+		if !claims.Admin && !claims.GroupPermission(groupName).Satisfies(auth.PermOwner) {
+			jsonError(w, http.StatusForbidden, "group owner or admin required")
+			return
+		}
+
+		// Load group into context (may be needed by handler)
+		grp, _ := s.store.GetGroup(groupName)
+		ctx := contextWithClaims(r.Context(), claims)
+		if grp != nil {
+			ctx = contextWithGroup(ctx, grp)
+		}
+		next(w, r.WithContext(ctx))
+	}
+}
+
+// adminOnly validates the token and requires the global admin flag.
 func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := s.extractClaims(w, r, true)
@@ -79,14 +101,11 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 			jsonError(w, http.StatusForbidden, "admin required")
 			return
 		}
-		r = r.WithContext(contextWithClaims(r.Context(), claims))
-		next(w, r)
+		next(w, r.WithContext(contextWithClaims(r.Context(), claims)))
 	}
 }
 
 // extractClaims parses the Bearer token from the Authorization header.
-// If required is true, it writes an error response and returns false when the token is missing/invalid.
-// If required is false, a missing token returns (nil, true) — caller handles anonymous.
 func (s *Server) extractClaims(w http.ResponseWriter, r *http.Request, required bool) (*auth.Claims, bool) {
 	header := r.Header.Get("Authorization")
 	if header == "" {
@@ -108,16 +127,5 @@ func (s *Server) extractClaims(w http.ResponseWriter, r *http.Request, required 
 		jsonError(w, http.StatusUnauthorized, "invalid or expired token")
 		return nil, false
 	}
-
 	return claims, true
-}
-
-// contextExists checks both config-defined and dynamic contexts.
-func (s *Server) contextExists(name string) bool {
-	// Check config-defined contexts
-	if s.cfg.FindContext(name) != nil {
-		return true
-	}
-	// Check dynamically created contexts
-	return s.store.ContextExists(name)
 }

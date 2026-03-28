@@ -23,8 +23,35 @@ func NewServer(cfg *config.Config, store *storage.Storage) *Server {
 		store: store,
 		mux:   http.NewServeMux(),
 	}
+	s.seedGroups()
 	s.registerRoutes()
 	return s
+}
+
+// seedGroups creates groups from config.yaml if they don't already exist on disk.
+func (s *Server) seedGroups() {
+	for _, gdef := range s.cfg.Groups {
+		members := make([]storage.GroupMember, len(gdef.Members))
+		for i, m := range gdef.Members {
+			members[i] = storage.GroupMember{
+				Username:   m.Username,
+				Permission: m.Permission,
+			}
+		}
+		if err := s.store.SeedGroup(storage.GroupRecord{
+			Name:            gdef.Name,
+			Description:     gdef.Description,
+			Owner:           gdef.Owner,
+			ConanUser:       gdef.ConanUser,
+			ConanChannel:    gdef.ConanChannel,
+			AnonymousAccess: gdef.AnonymousAccess,
+			Source:          "config",
+			CreatedAt:       time.Now().UTC(),
+			Members:         members,
+		}); err != nil {
+			log.Printf("warn: failed to seed group %q: %v", gdef.Name, err)
+		}
+	}
 }
 
 func (s *Server) Run(addr string) error {
@@ -44,60 +71,58 @@ func (s *Server) registerRoutes() {
 	// ── Global health check ───────────────────────────────────────────────────
 	m.HandleFunc("GET /ping", s.handlePing)
 
-	// ── Context management API (global, admin only) ───────────────────────────
-	m.HandleFunc("POST /api/contexts", s.adminOnly(s.handleCreateContext))
-	m.HandleFunc("GET /api/contexts", s.adminOnly(s.handleListContexts))
-	m.HandleFunc("GET /api/contexts/{context}", s.adminOnly(s.handleGetContext))
-	m.HandleFunc("DELETE /api/contexts/{context}", s.adminOnly(s.handleDeleteContext))
+	// ── Group management API (global, no {group} in path) ────────────────────
+	m.HandleFunc("POST /api/groups", s.adminOnly(s.handleCreateGroup))
+	m.HandleFunc("GET /api/groups", s.adminOnly(s.handleListGroups))
+	m.HandleFunc("GET /api/groups/{group}", s.adminOnly(s.handleGetGroup))
+	m.HandleFunc("PATCH /api/groups/{group}", s.requireGroupOwnerOrAdmin(s.handleUpdateGroup))
+	m.HandleFunc("DELETE /api/groups/{group}", s.adminOnly(s.handleDeleteGroup))
 
-	// ── Context-scoped Conan v2 endpoints ────────────────────────────────────
-	// JFrog-compatible: Conan client remote URL is http://server:9300/{context}
-	// The client appends /v2/... so full URLs are /{context}/v2/conans/...
+	// ── Group member management ───────────────────────────────────────────────
+	m.HandleFunc("POST /api/groups/{group}/members", s.requireGroupOwnerOrAdmin(s.handleInviteMember))
+	m.HandleFunc("GET /api/groups/{group}/members", s.requireGroupOwnerOrAdmin(s.handleListMembers))
+	m.HandleFunc("PUT /api/groups/{group}/members/{username}", s.requireGroupOwnerOrAdmin(s.handleUpdateMember))
+	m.HandleFunc("DELETE /api/groups/{group}/members/{username}", s.requireGroupOwnerOrAdmin(s.handleRemoveMember))
 
-	m.HandleFunc("GET /{context}/ping", s.handlePing)
-	m.HandleFunc("GET /{context}/v2/users/authenticate", s.handleAuthenticate)
-	m.HandleFunc("GET /{context}/v2/users/check_credentials",
+	// ── Group-scoped Conan v2 endpoints ───────────────────────────────────────
+	// Conan client remote URL: http://server:9300/{group}
+	m.HandleFunc("GET /{group}/ping", s.handlePing)
+	m.HandleFunc("GET /{group}/v2/users/authenticate", s.handleAuthenticate)
+	m.HandleFunc("GET /{group}/v2/users/check_credentials",
 		s.requirePermission(auth.PermRead, s.handleCheckCredentials))
 
-	// Recipe search
-	m.HandleFunc("GET /{context}/v2/conans/search",
+	m.HandleFunc("GET /{group}/v2/conans/search",
 		s.requirePermission(auth.PermRead, s.handleRecipeSearch))
 
-	// Recipe revisions
-	ref := "/{context}/v2/conans/{name}/{version}/{username}/{channel}"
+	ref := "/{group}/v2/conans/{name}/{version}/{username}/{channel}"
 
 	m.HandleFunc("GET "+ref+"/revisions",
 		s.requirePermission(auth.PermRead, s.handleListRecipeRevisions))
 	m.HandleFunc("GET "+ref+"/revisions/latest",
 		s.requirePermission(auth.PermRead, s.handleLatestRecipeRevision))
-
-	// Recipe files
 	m.HandleFunc("GET "+ref+"/revisions/{rrev}/files",
 		s.requirePermission(auth.PermRead, s.handleListRecipeFiles))
 	m.HandleFunc("GET "+ref+"/revisions/{rrev}/files/{filename...}",
 		s.requirePermission(auth.PermRead, s.handleDownloadRecipeFile))
 	m.HandleFunc("PUT "+ref+"/revisions/{rrev}/files/{filename...}",
-		s.requirePermission(auth.PermReadWrite, s.handleUploadRecipeFile))
+		s.requirePermission(auth.PermWrite, s.handleUploadRecipeFile))
 	m.HandleFunc("DELETE "+ref+"/revisions/{rrev}",
-		s.requirePermission(auth.PermAdmin, s.handleDeleteRecipeRevision))
+		s.requirePermission(auth.PermDelete, s.handleDeleteRecipeRevision))
 
-	// Package revisions
 	pkg := ref + "/revisions/{rrev}/packages/{pkgid}"
 
 	m.HandleFunc("GET "+pkg+"/revisions",
 		s.requirePermission(auth.PermRead, s.handleListPackageRevisions))
 	m.HandleFunc("GET "+pkg+"/revisions/latest",
 		s.requirePermission(auth.PermRead, s.handleLatestPackageRevision))
-
-	// Package files
 	m.HandleFunc("GET "+pkg+"/revisions/{prev}/files",
 		s.requirePermission(auth.PermRead, s.handleListPackageFiles))
 	m.HandleFunc("GET "+pkg+"/revisions/{prev}/files/{filename...}",
 		s.requirePermission(auth.PermRead, s.handleDownloadPackageFile))
 	m.HandleFunc("PUT "+pkg+"/revisions/{prev}/files/{filename...}",
-		s.requirePermission(auth.PermReadWrite, s.handleUploadPackageFile))
+		s.requirePermission(auth.PermWrite, s.handleUploadPackageFile))
 	m.HandleFunc("DELETE "+pkg+"/revisions/{prev}",
-		s.requirePermission(auth.PermAdmin, s.handleDeletePackageRevision))
+		s.requirePermission(auth.PermDelete, s.handleDeletePackageRevision))
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
