@@ -1,0 +1,26 @@
+server:
+  address: ":9300"
+  node_role: "primary"
+  s3:
+    endpoint: "minio:9000"
+    bucket: "miraeboy"
+    access_key_id: "minioadmin"       # .env 또는 Docker secret으로 관리 권장
+    secret_access_key: "minioadmin"
+    use_ssl: false
+    region: ""
+
+auth:
+  jwt_secret: "change-me-in-production"   # 반드시 변경 (모든 노드에서 동일해야 함)
+  users:
+    - username: "admin"
+      password: "admin123"
+      admin: true
+
+repositories:
+  - name: "extralib"
+    description: "사내 외부 라이브러리"
+    owner: "admin"
+    allowed_namespaces: ["sc"]
+    allowed_channels: ["dev", "release"]
+    anonymous_access: "none"
+    members: []

@@ -1,0 +1,4 @@
+.env
+config/config.*.yaml
+!config/config.primary.yaml
+!config/config.replica.yaml

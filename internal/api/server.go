@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/corbie79/miraeboy/internal/auth"
@@ -12,19 +14,56 @@ import (
 )
 
 type Server struct {
-	cfg   *config.Config
-	store *storage.Storage
-	mux   *http.ServeMux
+	cfg      *config.Config
+	store    *storage.Storage
+	mux      *http.ServeMux
+	webFS    fs.FS        // compiled web UI assets (may be nil)
+	nodeRole string       // "primary" or "replica"
+	oidc     *oidcProvider
 }
 
-func NewServer(cfg *config.Config, store *storage.Storage) *Server {
-	s := &Server{
-		cfg:   cfg,
-		store: store,
-		mux:   http.NewServeMux(),
+func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server {
+	role := cfg.Server.NodeRole
+	if role == "" {
+		role = "primary"
 	}
+	s := &Server{
+		cfg:      cfg,
+		store:    store,
+		mux:      http.NewServeMux(),
+		webFS:    webFS,
+		nodeRole: role,
+		oidc:     newOIDCProvider(),
+	}
+	s.seedRepos()
 	s.registerRoutes()
 	return s
+}
+
+// seedRepos creates repositories from config.yaml if they don't already exist on disk.
+func (s *Server) seedRepos() {
+	for _, rdef := range s.cfg.Repositories {
+		members := make([]storage.RepoMember, len(rdef.Members))
+		for i, m := range rdef.Members {
+			members[i] = storage.RepoMember{
+				Username:   m.Username,
+				Permission: m.Permission,
+			}
+		}
+		if err := s.store.SeedRepo(storage.RepoRecord{
+			Name:              rdef.Name,
+			Description:       rdef.Description,
+			Owner:             rdef.Owner,
+			AllowedNamespaces: rdef.AllowedNamespaces,
+			AllowedChannels:   rdef.AllowedChannels,
+			AnonymousAccess:   rdef.AnonymousAccess,
+			Source:            "config",
+			CreatedAt:         time.Now().UTC(),
+			Members:           members,
+		}); err != nil {
+			log.Printf("warn: failed to seed repository %q: %v", rdef.Name, err)
+		}
+	}
 }
 
 func (s *Server) Run(addr string) error {
@@ -41,63 +80,85 @@ func (s *Server) Run(addr string) error {
 func (s *Server) registerRoutes() {
 	m := s.mux
 
+	// ── Web UI static files ───────────────────────────────────────────────────
+	if s.webFS != nil {
+		fileServer := http.FileServer(http.FS(s.webFS))
+		m.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			// SPA fallback: serve index.html for non-asset paths
+			path := strings.TrimPrefix(r.URL.Path, "/")
+			if path == "" || !strings.Contains(path, ".") {
+				r2 := r.Clone(r.Context())
+				r2.URL.Path = "/"
+				fileServer.ServeHTTP(w, r2)
+				return
+			}
+			fileServer.ServeHTTP(w, r)
+		})
+	}
+
+	// ── Web UI auth ───────────────────────────────────────────────────────────
+	m.HandleFunc("POST /api/auth/login", s.handleWebLogin)
+
+	// ── OIDC SSO ──────────────────────────────────────────────────────────────
+	m.HandleFunc("GET /api/auth/oidc/status", s.handleOIDCStatus)
+	m.HandleFunc("GET /api/auth/oidc/login", s.handleOIDCLogin)
+	m.HandleFunc("GET /api/auth/oidc/callback", s.handleOIDCCallback)
+
 	// ── Global health check ───────────────────────────────────────────────────
 	m.HandleFunc("GET /ping", s.handlePing)
 
-	// ── Context management API (global, admin only) ───────────────────────────
-	m.HandleFunc("POST /api/contexts", s.adminOnly(s.handleCreateContext))
-	m.HandleFunc("GET /api/contexts", s.adminOnly(s.handleListContexts))
-	m.HandleFunc("GET /api/contexts/{context}", s.adminOnly(s.handleGetContext))
-	m.HandleFunc("DELETE /api/contexts/{context}", s.adminOnly(s.handleDeleteContext))
+	// ── Repository management API ─────────────────────────────────────────────
+	m.HandleFunc("POST /api/repos", s.replicaReadOnly(s.adminOnly(s.handleCreateRepo)))
+	m.HandleFunc("GET /api/repos", s.adminOnly(s.handleListRepos))
+	m.HandleFunc("GET /api/repos/{repository}", s.adminOnly(s.handleGetRepo))
+	m.HandleFunc("PATCH /api/repos/{repository}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleUpdateRepo)))
+	m.HandleFunc("DELETE /api/repos/{repository}", s.replicaReadOnly(s.adminOnly(s.handleDeleteRepo)))
 
-	// ── Context-scoped Conan v2 endpoints ────────────────────────────────────
-	// JFrog-compatible: Conan client remote URL is http://server:9300/{context}
-	// The client appends /v2/... so full URLs are /{context}/v2/conans/...
+	// ── Repository member management ──────────────────────────────────────────
+	m.HandleFunc("POST /api/repos/{repository}/members", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleInviteMember)))
+	m.HandleFunc("GET /api/repos/{repository}/members", s.requireRepoOwnerOrAdmin(s.handleListMembers))
+	m.HandleFunc("PUT /api/repos/{repository}/members/{username}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleUpdateMember)))
+	m.HandleFunc("DELETE /api/repos/{repository}/members/{username}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleRemoveMember)))
 
-	m.HandleFunc("GET /{context}/ping", s.handlePing)
-	m.HandleFunc("GET /{context}/v2/users/authenticate", s.handleAuthenticate)
-	m.HandleFunc("GET /{context}/v2/users/check_credentials",
+	// ── Conan v2 endpoints ────────────────────────────────────────────────────
+	// Conan client remote URL: http://server:9300/api/conan/{repository}
+	m.HandleFunc("GET /api/conan/{repository}/v2/ping", s.handlePing)
+	m.HandleFunc("GET /api/conan/{repository}/v2/users/authenticate", s.handleAuthenticate)
+	m.HandleFunc("GET /api/conan/{repository}/v2/users/check_credentials",
 		s.requirePermission(auth.PermRead, s.handleCheckCredentials))
 
-	// Recipe search
-	m.HandleFunc("GET /{context}/v2/conans/search",
+	m.HandleFunc("GET /api/conan/{repository}/v2/conans/search",
 		s.requirePermission(auth.PermRead, s.handleRecipeSearch))
 
-	// Recipe revisions
-	ref := "/{context}/v2/conans/{name}/{version}/{username}/{channel}"
+	ref := "/api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}"
 
 	m.HandleFunc("GET "+ref+"/revisions",
 		s.requirePermission(auth.PermRead, s.handleListRecipeRevisions))
 	m.HandleFunc("GET "+ref+"/revisions/latest",
 		s.requirePermission(auth.PermRead, s.handleLatestRecipeRevision))
-
-	// Recipe files
 	m.HandleFunc("GET "+ref+"/revisions/{rrev}/files",
 		s.requirePermission(auth.PermRead, s.handleListRecipeFiles))
 	m.HandleFunc("GET "+ref+"/revisions/{rrev}/files/{filename...}",
 		s.requirePermission(auth.PermRead, s.handleDownloadRecipeFile))
 	m.HandleFunc("PUT "+ref+"/revisions/{rrev}/files/{filename...}",
-		s.requirePermission(auth.PermReadWrite, s.handleUploadRecipeFile))
+		s.replicaReadOnly(s.requirePermission(auth.PermWrite, s.handleUploadRecipeFile)))
 	m.HandleFunc("DELETE "+ref+"/revisions/{rrev}",
-		s.requirePermission(auth.PermAdmin, s.handleDeleteRecipeRevision))
+		s.replicaReadOnly(s.requirePermission(auth.PermDelete, s.handleDeleteRecipeRevision)))
 
-	// Package revisions
 	pkg := ref + "/revisions/{rrev}/packages/{pkgid}"
 
 	m.HandleFunc("GET "+pkg+"/revisions",
 		s.requirePermission(auth.PermRead, s.handleListPackageRevisions))
 	m.HandleFunc("GET "+pkg+"/revisions/latest",
 		s.requirePermission(auth.PermRead, s.handleLatestPackageRevision))
-
-	// Package files
 	m.HandleFunc("GET "+pkg+"/revisions/{prev}/files",
 		s.requirePermission(auth.PermRead, s.handleListPackageFiles))
 	m.HandleFunc("GET "+pkg+"/revisions/{prev}/files/{filename...}",
 		s.requirePermission(auth.PermRead, s.handleDownloadPackageFile))
 	m.HandleFunc("PUT "+pkg+"/revisions/{prev}/files/{filename...}",
-		s.requirePermission(auth.PermReadWrite, s.handleUploadPackageFile))
+		s.replicaReadOnly(s.requirePermission(auth.PermWrite, s.handleUploadPackageFile)))
 	m.HandleFunc("DELETE "+pkg+"/revisions/{prev}",
-		s.requirePermission(auth.PermAdmin, s.handleDeletePackageRevision))
+		s.replicaReadOnly(s.requirePermission(auth.PermDelete, s.handleDeletePackageRevision)))
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -112,6 +173,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func jsonError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func decodeJSON(r *http.Request, v any) error {
+	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {

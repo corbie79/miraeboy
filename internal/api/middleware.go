@@ -7,45 +7,40 @@ import (
 	"github.com/corbie79/miraeboy/internal/auth"
 )
 
-// auth validates the Bearer token. For routes with no context (global routes).
-func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := s.extractClaims(w, r, false)
-		if !ok {
-			return
-		}
-		if claims != nil {
-			r = r.WithContext(contextWithClaims(r.Context(), claims))
-		}
-		next(w, r)
-	}
-}
-
-// requirePermission validates the Bearer token AND checks that the user has
-// at least minPerm on the context named in the {context} path segment.
-// It also handles anonymous access based on the context's configuration.
+// requirePermission validates the Bearer token and checks that the user has
+// at least minPerm on the repository named in the {repository} path segment.
+// Anonymous access is allowed when the repository's anonymous_access meets minPerm.
+// On success the RepoRecord is stored in the request context for handlers.
 func (s *Server) requirePermission(minPerm auth.Permission, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		contextName := r.PathValue("context")
+		repoName := r.PathValue("repository")
 
-		// Validate context name to prevent path traversal
-		if strings.ContainsAny(contextName, "/\\..") || contextName == "" {
-			jsonError(w, http.StatusBadRequest, "invalid context name")
+		if strings.ContainsAny(repoName, "/\\.") || repoName == "" {
+			jsonError(w, http.StatusBadRequest, "invalid repository name")
 			return
 		}
 
-		// Check context exists (config-defined or dynamically created)
-		if !s.contextExists(contextName) {
-			jsonError(w, http.StatusNotFound, "context not found: "+contextName)
+		// Load repository (also verifies existence)
+		repo, err := s.store.GetRepo(repoName)
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if repo == nil {
+			jsonError(w, http.StatusNotFound, "repository not found: "+repoName)
 			return
 		}
 
 		header := r.Header.Get("Authorization")
 
 		if header == "" {
-			// No token: check anonymous access
-			anonPerm := s.cfg.AnonymousPermission(contextName)
+			// Unauthenticated: check anonymous access setting
+			anonPerm := auth.Permission(repo.AnonymousAccess)
+			if anonPerm == "" {
+				anonPerm = auth.PermNone
+			}
 			if anonPerm.Satisfies(minPerm) {
+				r = r.WithContext(contextWithRepo(r.Context(), repo))
 				next(w, r)
 				return
 			}
@@ -58,17 +53,43 @@ func (s *Server) requirePermission(minPerm auth.Permission, next http.HandlerFun
 			return
 		}
 
-		if !claims.PermissionFor(contextName).Satisfies(minPerm) {
-			jsonError(w, http.StatusForbidden, "insufficient permission on context: "+contextName)
+		if !claims.GroupPermission(repoName).Satisfies(minPerm) {
+			jsonError(w, http.StatusForbidden, "insufficient permission on repository: "+repoName)
 			return
 		}
 
-		r = r.WithContext(contextWithClaims(r.Context(), claims))
-		next(w, r)
+		ctx := contextWithClaims(r.Context(), claims)
+		ctx = contextWithRepo(ctx, repo)
+		next(w, r.WithContext(ctx))
 	}
 }
 
-// adminOnly validates the Bearer token and requires global admin role.
+// requireRepoOwnerOrAdmin validates the token and requires that the user is
+// either the global admin or has PermOwner on the repository in the path.
+func (s *Server) requireRepoOwnerOrAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := s.extractClaims(w, r, true)
+		if !ok {
+			return
+		}
+
+		repoName := r.PathValue("repository")
+		if !claims.Admin && !claims.GroupPermission(repoName).Satisfies(auth.PermOwner) {
+			jsonError(w, http.StatusForbidden, "repository owner or admin required")
+			return
+		}
+
+		// Load repo into context (may be needed by handler)
+		repo, _ := s.store.GetRepo(repoName)
+		ctx := contextWithClaims(r.Context(), claims)
+		if repo != nil {
+			ctx = contextWithRepo(ctx, repo)
+		}
+		next(w, r.WithContext(ctx))
+	}
+}
+
+// adminOnly validates the token and requires the global admin flag.
 func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := s.extractClaims(w, r, true)
@@ -79,14 +100,28 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 			jsonError(w, http.StatusForbidden, "admin required")
 			return
 		}
-		r = r.WithContext(contextWithClaims(r.Context(), claims))
+		next(w, r.WithContext(contextWithClaims(r.Context(), claims)))
+	}
+}
+
+// replicaReadOnly blocks write requests (PUT, POST, DELETE, PATCH) when
+// this node is running in replica mode. Replica nodes are read-only; all
+// writes must go through the primary node.
+func (s *Server) replicaReadOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.nodeRole == "replica" {
+			switch r.Method {
+			case http.MethodPut, http.MethodPost, http.MethodDelete, http.MethodPatch:
+				jsonError(w, http.StatusServiceUnavailable,
+					"this node is read-only (replica); send write requests to the primary node")
+				return
+			}
+		}
 		next(w, r)
 	}
 }
 
 // extractClaims parses the Bearer token from the Authorization header.
-// If required is true, it writes an error response and returns false when the token is missing/invalid.
-// If required is false, a missing token returns (nil, true) — caller handles anonymous.
 func (s *Server) extractClaims(w http.ResponseWriter, r *http.Request, required bool) (*auth.Claims, bool) {
 	header := r.Header.Get("Authorization")
 	if header == "" {
@@ -108,16 +143,5 @@ func (s *Server) extractClaims(w http.ResponseWriter, r *http.Request, required 
 		jsonError(w, http.StatusUnauthorized, "invalid or expired token")
 		return nil, false
 	}
-
 	return claims, true
-}
-
-// contextExists checks both config-defined and dynamic contexts.
-func (s *Server) contextExists(name string) bool {
-	// Check config-defined contexts
-	if s.cfg.FindContext(name) != nil {
-		return true
-	}
-	// Check dynamically created contexts
-	return s.store.ContextExists(name)
 }

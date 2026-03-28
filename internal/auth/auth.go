@@ -9,61 +9,65 @@ import (
 
 const tokenTTL = 24 * time.Hour
 
-// Permission represents the access level for a context.
+// Permission represents the access level for a package group.
 type Permission string
 
 const (
-	PermRead      Permission = "read"
-	PermReadWrite Permission = "readwrite"
-	PermAdmin     Permission = "admin"
-	PermNone      Permission = "none"
+	PermNone   Permission = "none"
+	PermRead   Permission = "read"
+	PermWrite  Permission = "write"  // upload + download
+	PermDelete Permission = "delete" // upload + download + delete packages
+	PermOwner  Permission = "owner"  // delete + manage group settings & members
 )
+
+var permOrder = map[Permission]int{
+	PermNone:   0,
+	PermRead:   1,
+	PermWrite:  2,
+	PermDelete: 3,
+	PermOwner:  4,
+}
 
 // Satisfies returns true if p meets or exceeds the required minimum permission.
 func (p Permission) Satisfies(required Permission) bool {
-	order := map[Permission]int{
-		PermNone:      0,
-		PermRead:      1,
-		PermReadWrite: 2,
-		PermAdmin:     3,
-	}
-	return order[p] >= order[required]
+	return permOrder[p] >= permOrder[required]
 }
 
+// Claims is the JWT payload.
 type Claims struct {
 	Username string                `json:"username"`
 	Admin    bool                  `json:"admin"`
-	Contexts map[string]Permission `json:"contexts"` // {"conan-local":"readwrite"}, or {"*":"admin"}
+	Groups   map[string]Permission `json:"groups"` // {"conan-local":"write"} or {"*":"owner"}
 	jwt.RegisteredClaims
 }
 
-// PermissionFor returns the effective permission for the given context.
-// Global admins always get PermAdmin. Wildcard "*" is checked as a fallback.
-func (c *Claims) PermissionFor(ctx string) Permission {
+// GroupPermission returns the effective permission for a package group.
+// Global admins always get PermOwner. Wildcard "*" is used as fallback.
+func (c *Claims) GroupPermission(group string) Permission {
 	if c.Admin {
-		return PermAdmin
+		return PermOwner
 	}
-	if c.Contexts == nil {
+	if c.Groups == nil {
 		return PermNone
 	}
-	if p, ok := c.Contexts[ctx]; ok {
+	if p, ok := c.Groups[group]; ok {
 		return p
 	}
-	if p, ok := c.Contexts["*"]; ok {
+	if p, ok := c.Groups["*"]; ok {
 		return p
 	}
 	return PermNone
 }
 
-// IssueToken generates a signed JWT for the given user with context permissions.
-func IssueToken(secret, username string, admin bool, contexts map[string]Permission) (string, error) {
-	if contexts == nil {
-		contexts = map[string]Permission{}
+// IssueToken generates a signed JWT embedding group permissions.
+func IssueToken(secret, username string, admin bool, groups map[string]Permission) (string, error) {
+	if groups == nil {
+		groups = map[string]Permission{}
 	}
 	claims := Claims{
 		Username: username,
 		Admin:    admin,
-		Contexts: contexts,
+		Groups:   groups,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(tokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
