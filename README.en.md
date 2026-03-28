@@ -279,6 +279,89 @@ data/
           ...
 ```
 
+## OIDC SSO Integration
+
+miraeboy supports any OpenID Connect compatible IdP: Keycloak, Azure AD (Entra ID),
+Google Workspace, Okta, etc.
+Local `users:` login is always available as a fallback regardless of OIDC configuration.
+
+### Flow
+
+```
+Browser → GET /api/auth/oidc/login
+        → (redirect to IdP)
+        → user authenticates
+        → GET /api/auth/oidc/callback?code=...
+        → miraeboy issues internal JWT
+        → redirect to web UI (#/auth/callback?token=...)
+```
+
+The Conan CLI continues to authenticate via local accounts (`POST /api/auth/login`).
+Register CI service accounts in `config.yaml` under `users:`.
+
+### config.yaml
+
+```yaml
+auth:
+  jwt_secret: "your-strong-secret-here"
+  oidc:
+    issuer: "https://keycloak.example.com/realms/company"
+    client_id: "miraeboy"
+    client_secret: "your-client-secret"
+    redirect_url: "http://miraeboy.example.com/api/auth/oidc/callback"
+
+    # Claim name for groups array (Keycloak default: "groups", Azure AD: "groups")
+    groups_claim: "groups"
+
+    # Any user in these groups receives global admin
+    admin_groups: ["miraeboy-admin"]
+
+    # OIDC group → repository permission mappings
+    group_mappings:
+      - group: "devteam"
+        repository: "extralib"
+        permission: "write"
+      - group: "readonly-all"
+        repository: "*"          # read on all repositories
+        permission: "read"
+      - group: "ci-team"
+        repository: "extralib"
+        permission: "write"
+```
+
+### Group → Permission Mapping
+
+| OIDC Group | Repository | Permission | Effect |
+|------------|------------|------------|--------|
+| `miraeboy-admin` | — | — | Global admin |
+| `devteam` | `extralib` | `write` | Can upload to extralib |
+| `readonly-all` | `*` | `read` | Read access to all repos |
+
+When a user belongs to multiple groups, the **highest permission** wins per repository.
+
+### Keycloak Setup
+
+1. Create a Client: `miraeboy`, Valid Redirect URI: `http://miraeboy.example.com/api/auth/oidc/callback`
+2. Add `groups` mapper to the Client Scope → includes groups in the ID token
+3. Windows AD federation: User Federation → LDAP → connect to AD server
+4. Azure AD federation: Identity Providers → OpenID Connect → Azure tenant endpoint
+
+### Azure AD Direct (without Keycloak)
+
+```yaml
+oidc:
+  issuer: "https://login.microsoftonline.com/{tenant-id}/v2.0"
+  client_id: "{app-registration-client-id}"
+  client_secret: "{client-secret}"
+  redirect_url: "http://miraeboy.example.com/api/auth/oidc/callback"
+  groups_claim: "groups"    # App Registration → Token configuration → add Groups claim
+  admin_groups: ["{admin-group-object-id}"]
+```
+
+> Azure AD includes groups as GUIDs. Use the group Object ID in `admin_groups`.
+
+---
+
 ## Active-Passive HA Setup (S3 Backend)
 
 Two nodes share the same S3 bucket. The load balancer routes write requests to

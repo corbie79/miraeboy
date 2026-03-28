@@ -32,9 +32,30 @@ type User struct {
 	Admin    bool   `yaml:"admin"`
 }
 
+// OIDCGroupMapping maps a single OIDC group to a repository permission.
+// Use repository: "*" to grant the permission on all repositories.
+type OIDCGroupMapping struct {
+	Group      string `yaml:"group"`
+	Repository string `yaml:"repository"`
+	Permission string `yaml:"permission"` // "read", "write", "delete", "owner"
+}
+
+// OIDCConfig holds OpenID Connect SSO settings.
+// Leave Issuer empty to disable OIDC (local username/password is always available as fallback).
+type OIDCConfig struct {
+	Issuer       string             `yaml:"issuer"`        // e.g. https://keycloak.example.com/realms/company
+	ClientID     string             `yaml:"client_id"`
+	ClientSecret string             `yaml:"client_secret"`
+	RedirectURL  string             `yaml:"redirect_url"`  // e.g. http://miraeboy.example.com/api/auth/oidc/callback
+	GroupsClaim  string             `yaml:"groups_claim"`  // claim name for groups array (default: "groups")
+	AdminGroups  []string           `yaml:"admin_groups"`  // any of these → admin=true
+	GroupMappings []OIDCGroupMapping `yaml:"group_mappings"`
+}
+
 type AuthConfig struct {
-	Users     []User `yaml:"users"`
-	JWTSecret string `yaml:"jwt_secret"`
+	Users     []User     `yaml:"users"`
+	JWTSecret string     `yaml:"jwt_secret"`
+	OIDC      OIDCConfig `yaml:"oidc"`
 }
 
 // S3Config holds S3-compatible object storage settings.

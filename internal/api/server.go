@@ -17,8 +17,9 @@ type Server struct {
 	cfg      *config.Config
 	store    *storage.Storage
 	mux      *http.ServeMux
-	webFS    fs.FS  // compiled web UI assets (may be nil)
-	nodeRole string // "primary" or "replica"
+	webFS    fs.FS        // compiled web UI assets (may be nil)
+	nodeRole string       // "primary" or "replica"
+	oidc     *oidcProvider
 }
 
 func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server {
@@ -32,6 +33,7 @@ func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server 
 		mux:      http.NewServeMux(),
 		webFS:    webFS,
 		nodeRole: role,
+		oidc:     newOIDCProvider(),
 	}
 	s.seedRepos()
 	s.registerRoutes()
@@ -96,6 +98,11 @@ func (s *Server) registerRoutes() {
 
 	// ── Web UI auth ───────────────────────────────────────────────────────────
 	m.HandleFunc("POST /api/auth/login", s.handleWebLogin)
+
+	// ── OIDC SSO ──────────────────────────────────────────────────────────────
+	m.HandleFunc("GET /api/auth/oidc/status", s.handleOIDCStatus)
+	m.HandleFunc("GET /api/auth/oidc/login", s.handleOIDCLogin)
+	m.HandleFunc("GET /api/auth/oidc/callback", s.handleOIDCCallback)
 
 	// ── Global health check ───────────────────────────────────────────────────
 	m.HandleFunc("GET /ping", s.handlePing)

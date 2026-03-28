@@ -277,6 +277,88 @@ data/
           ...
 ```
 
+## OIDC SSO 연동
+
+Keycloak, Azure AD 등 OpenID Connect 호환 IdP와 연동할 수 있습니다.
+로컬 `users:` 로그인은 OIDC 활성화 여부와 무관하게 항상 사용 가능합니다.
+
+### 흐름
+
+```
+브라우저 → GET /api/auth/oidc/login
+         → (IdP로 redirect)
+         → 사용자 로그인 완료
+         → GET /api/auth/oidc/callback?code=...
+         → miraeboy 내부 JWT 발급
+         → 웹 UI로 redirect (#/auth/callback?token=...)
+```
+
+Conan CLI는 로컬 계정(`POST /api/auth/login`)으로 계속 인증합니다.
+CI 서비스 계정은 `config.yaml`의 `users:`에 등록하면 됩니다.
+
+### config.yaml 설정
+
+```yaml
+auth:
+  jwt_secret: "your-strong-secret-here"
+  oidc:
+    issuer: "https://keycloak.example.com/realms/company"
+    client_id: "miraeboy"
+    client_secret: "your-client-secret"
+    redirect_url: "http://miraeboy.example.com/api/auth/oidc/callback"
+
+    # 그룹 클레임 이름 (Keycloak 기본값: "groups", Azure AD: "groups")
+    groups_claim: "groups"
+
+    # 이 그룹에 속하면 전체 admin
+    admin_groups: ["miraeboy-admin"]
+
+    # OIDC 그룹 → 리포지토리 권한 매핑
+    group_mappings:
+      - group: "devteam"
+        repository: "extralib"
+        permission: "write"
+      - group: "readonly-all"
+        repository: "*"          # 모든 리포지토리에 read
+        permission: "read"
+      - group: "ci-team"
+        repository: "extralib"
+        permission: "write"
+```
+
+### OIDC 그룹과 permission 매핑
+
+| OIDC 그룹 | repository | permission | 결과 |
+|-----------|------------|------------|------|
+| `miraeboy-admin` | — | — | 전체 admin |
+| `devteam` | `extralib` | `write` | extralib에 업로드 가능 |
+| `readonly-all` | `*` | `read` | 모든 리포지토리 읽기 |
+
+한 사용자가 여러 그룹에 속하면 **가장 높은 권한**이 적용됩니다.
+
+### Keycloak 설정 포인트
+
+1. Client 생성: `miraeboy`, Valid Redirect URI: `http://miraeboy.example.com/api/auth/oidc/callback`
+2. Client Scope에 `groups` mapper 추가 → ID 토큰에 그룹 포함
+3. Windows AD 연동: User Federation → LDAP → AD 서버 연결
+4. Azure AD 연동: Identity Providers → OpenID Connect → Azure tenant endpoint
+
+### Azure AD 직결 (Keycloak 없이)
+
+```yaml
+oidc:
+  issuer: "https://login.microsoftonline.com/{tenant-id}/v2.0"
+  client_id: "{app-registration-client-id}"
+  client_secret: "{client-secret}"
+  redirect_url: "http://miraeboy.example.com/api/auth/oidc/callback"
+  groups_claim: "groups"    # App Registration → Token configuration → Groups claim 추가 필요
+  admin_groups: ["{admin-group-object-id}"]
+```
+
+> Azure AD는 그룹을 GUID로 포함합니다. `admin_groups`에 그룹 Object ID를 사용하세요.
+
+---
+
 ## Active-Passive HA 구성 (S3 백엔드)
 
 두 노드가 동일한 S3 버킷을 공유합니다. 로드밸런서가 쓰기 요청은 Primary로, 읽기 요청은 양쪽으로 분산합니다.

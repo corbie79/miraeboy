@@ -15,6 +15,33 @@ server:
 
 auth:
   jwt_secret: "change-me-in-production"
+
+  # OIDC SSO 설정 (Keycloak, Azure AD 등)
+  # issuer를 비워두면 비활성화 — 로컬 users: 로그인은 항상 사용 가능
+  # oidc:
+  #   issuer: "https://keycloak.example.com/realms/company"
+  #   client_id: "miraeboy"
+  #   client_secret: "your-client-secret"
+  #   redirect_url: "http://miraeboy.example.com/api/auth/oidc/callback"
+  #
+  #   # 그룹 클레임 이름 (Keycloak 기본값: "groups", Azure AD: "groups")
+  #   groups_claim: "groups"
+  #
+  #   # 이 그룹에 속하면 전체 admin 권한
+  #   admin_groups: ["miraeboy-admin"]
+  #
+  #   # OIDC 그룹 → 리포지토리 권한 매핑
+  #   group_mappings:
+  #     - group: "devteam"
+  #       repository: "extralib"
+  #       permission: "write"
+  #     - group: "readonly-all"
+  #       repository: "*"          # 모든 리포지토리에 read
+  #       permission: "read"
+  #     - group: "ci-team"
+  #       repository: "extralib"
+  #       permission: "write"
+
   users:
     - username: "admin"
       password: "admin123"
