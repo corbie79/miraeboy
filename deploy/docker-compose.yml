@@ -1,0 +1,20 @@
+# 단일 노드 구성 (로컬 파일시스템)
+# 사용법: docker compose up -d
+
+services:
+  miraeboy:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: miraeboy
+    restart: unless-stopped
+    ports:
+      - "9300:9300"
+    volumes:
+      - ./config/config.yaml:/etc/miraeboy/config.yaml:ro
+      - miraeboy-data:/var/lib/miraeboy/data
+    environment:
+      - TZ=Asia/Seoul
+
+volumes:
+  miraeboy-data:

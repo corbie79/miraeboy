@@ -1,0 +1,17 @@
+server:
+  address: ":9300"
+  node_role: "replica"                # ← 이것만 다름
+  s3:
+    endpoint: "minio:9000"
+    bucket: "miraeboy"
+    access_key_id: "minioadmin"
+    secret_access_key: "minioadmin"
+    use_ssl: false
+    region: ""
+
+auth:
+  jwt_secret: "change-me-in-production"   # Primary와 반드시 동일해야 함
+  users:
+    - username: "admin"
+      password: "admin123"
+      admin: true
