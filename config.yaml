@@ -1,0 +1,14 @@
+server:
+  address: ":9300"
+  storage_path: "./data"
+
+auth:
+  jwt_secret: "change-me-in-production"
+  anonymous: false   # true 로 바꾸면 읽기 전용 비인증 허용
+  users:
+    - username: "admin"
+      password: "admin123"
+      admin: true
+    - username: "reader"
+      password: "reader123"
+      admin: false
