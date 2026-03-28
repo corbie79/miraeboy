@@ -70,10 +70,11 @@ type S3Config struct {
 }
 
 type ServerConfig struct {
-	Address     string   `yaml:"address"`
-	StoragePath string   `yaml:"storage_path"`
-	NodeRole    string   `yaml:"node_role"` // "primary" (default) or "replica"
-	S3          S3Config `yaml:"s3"`
+	Address           string   `yaml:"address"`
+	StoragePath       string   `yaml:"storage_path"`
+	NodeRole          string   `yaml:"node_role"`          // "primary" (default) or "replica"
+	ArtifactoryCompat bool     `yaml:"artifactory_compat"` // also register /artifactory/api/conan/... routes
+	S3                S3Config `yaml:"s3"`
 }
 
 type Config struct {

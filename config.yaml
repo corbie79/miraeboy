@@ -2,6 +2,7 @@ server:
   address: ":9300"
   storage_path: "./data"   # 로컬 파일시스템 경로 (S3 사용 시 무시됨)
   node_role: "primary"     # "primary" (기본값) 또는 "replica" (읽기 전용)
+  artifactory_compat: false  # true 시 /artifactory/api/conan/... URL도 동작 (JFrog 마이그레이션용)
 
   # S3 호환 스토리지 (MinIO, AWS S3, NCP Object Storage 등)
   # endpoint를 비워두면 로컬 파일시스템 backend를 사용합니다.

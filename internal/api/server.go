@@ -122,15 +122,29 @@ func (s *Server) registerRoutes() {
 
 	// ── Conan v2 endpoints ────────────────────────────────────────────────────
 	// Conan client remote URL: http://server:9300/api/conan/{repository}
-	m.HandleFunc("GET /api/conan/{repository}/v2/ping", s.handlePing)
-	m.HandleFunc("GET /api/conan/{repository}/v2/users/authenticate", s.handleAuthenticate)
-	m.HandleFunc("GET /api/conan/{repository}/v2/users/check_credentials",
+	s.registerConanRoutes(m, "/api/conan")
+
+	// ── JFrog Artifactory 호환 URL (선택) ────────────────────────────────────
+	// artifactory_compat: true 시 /artifactory/api/conan/{repository}/... 도 동작
+	// Conan 클라이언트에서 http://server:9300/artifactory/api/conan/extralib 으로 등록 가능
+	if s.cfg.Server.ArtifactoryCompat {
+		s.registerConanRoutes(m, "/artifactory/api/conan")
+		log.Printf("Artifactory-compat URLs enabled: /artifactory/api/conan/...")
+	}
+}
+
+// registerConanRoutes registers all Conan v2 endpoints under the given base prefix.
+// Called twice when artifactory_compat is enabled: once for /api/conan, once for /artifactory/api/conan.
+func (s *Server) registerConanRoutes(m *http.ServeMux, base string) {
+	m.HandleFunc("GET "+base+"/{repository}/v2/ping", s.handlePing)
+	m.HandleFunc("GET "+base+"/{repository}/v2/users/authenticate", s.handleAuthenticate)
+	m.HandleFunc("GET "+base+"/{repository}/v2/users/check_credentials",
 		s.requirePermission(auth.PermRead, s.handleCheckCredentials))
 
-	m.HandleFunc("GET /api/conan/{repository}/v2/conans/search",
+	m.HandleFunc("GET "+base+"/{repository}/v2/conans/search",
 		s.requirePermission(auth.PermRead, s.handleRecipeSearch))
 
-	ref := "/api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}"
+	ref := base + "/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}"
 
 	m.HandleFunc("GET "+ref+"/revisions",
 		s.requirePermission(auth.PermRead, s.handleListRecipeRevisions))
