@@ -119,7 +119,7 @@ func (s *Server) handleDeleteRecipeRevision(w http.ResponseWriter, r *http.Reque
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func recipeParams(r *http.Request) (repo, name, version, namespace, channel string) {

@@ -297,7 +297,11 @@ func (s *Storage) GetRecipeFile(repo, name, version, namespace, channel, rrev, f
 	if err != nil {
 		return nil, 0, err
 	}
-	info, _ := f.Stat()
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, 0, err
+	}
 	return f, info.Size(), nil
 }
 
@@ -368,7 +372,11 @@ func (s *Storage) GetPackageFile(repo, name, version, namespace, channel, pkgid,
 	if err != nil {
 		return nil, 0, err
 	}
-	info, _ := f.Stat()
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, 0, err
+	}
 	return f, info.Size(), nil
 }
 

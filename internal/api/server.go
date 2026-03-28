@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/corbie79/miraeboy/internal/auth"
@@ -15,13 +17,15 @@ type Server struct {
 	cfg   *config.Config
 	store *storage.Storage
 	mux   *http.ServeMux
+	webFS fs.FS // compiled web UI assets (may be nil)
 }
 
-func NewServer(cfg *config.Config, store *storage.Storage) *Server {
+func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server {
 	s := &Server{
 		cfg:   cfg,
 		store: store,
 		mux:   http.NewServeMux(),
+		webFS: webFS,
 	}
 	s.seedRepos()
 	s.registerRoutes()
@@ -67,6 +71,25 @@ func (s *Server) Run(addr string) error {
 
 func (s *Server) registerRoutes() {
 	m := s.mux
+
+	// ── Web UI static files ───────────────────────────────────────────────────
+	if s.webFS != nil {
+		fileServer := http.FileServer(http.FS(s.webFS))
+		m.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			// SPA fallback: serve index.html for non-asset paths
+			path := strings.TrimPrefix(r.URL.Path, "/")
+			if path == "" || !strings.Contains(path, ".") {
+				r2 := r.Clone(r.Context())
+				r2.URL.Path = "/"
+				fileServer.ServeHTTP(w, r2)
+				return
+			}
+			fileServer.ServeHTTP(w, r)
+		})
+	}
+
+	// ── Web UI auth ───────────────────────────────────────────────────────────
+	m.HandleFunc("POST /api/auth/login", s.handleWebLogin)
 
 	// ── Global health check ───────────────────────────────────────────────────
 	m.HandleFunc("GET /ping", s.handlePing)
@@ -137,6 +160,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func jsonError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func decodeJSON(r *http.Request, v any) error {
+	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {

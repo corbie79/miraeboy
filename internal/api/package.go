@@ -104,7 +104,7 @@ func (s *Server) handleDeletePackageRevision(w http.ResponseWriter, r *http.Requ
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func pkgParams(r *http.Request) (repo, name, version, namespace, channel, rrev, pkgid string) {
