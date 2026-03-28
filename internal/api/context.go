@@ -11,7 +11,7 @@ type contextKey string
 
 const (
 	claimsKey contextKey = "claims"
-	groupKey  contextKey = "group"
+	repoKey   contextKey = "repo"
 )
 
 func contextWithClaims(ctx context.Context, claims *auth.Claims) context.Context {
@@ -27,18 +27,18 @@ func claimsFromContext(ctx context.Context) *auth.Claims {
 	return c
 }
 
-// contextWithGroup stores the loaded GroupRecord so handlers can access
-// group settings (conan_user, conan_channel, etc.) without re-querying storage.
-func contextWithGroup(ctx context.Context, g *storage.GroupRecord) context.Context {
-	return context.WithValue(ctx, groupKey, g)
+// contextWithRepo stores the loaded RepoRecord so handlers can access
+// repository settings (allowed_namespaces, allowed_channels, etc.) without re-querying storage.
+func contextWithRepo(ctx context.Context, r *storage.RepoRecord) context.Context {
+	return context.WithValue(ctx, repoKey, r)
 }
 
-// groupFromContext retrieves the GroupRecord stored by requirePermission.
-func groupFromContext(ctx context.Context) *storage.GroupRecord {
-	v := ctx.Value(groupKey)
+// repoFromContext retrieves the RepoRecord stored by requirePermission.
+func repoFromContext(ctx context.Context) *storage.RepoRecord {
+	v := ctx.Value(repoKey)
 	if v == nil {
 		return nil
 	}
-	g, _ := v.(*storage.GroupRecord)
-	return g
+	r, _ := v.(*storage.RepoRecord)
+	return r
 }

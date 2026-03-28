@@ -7,7 +7,7 @@ auth:
   users:
     - username: "admin"
       password: "admin123"
-      admin: true           # 모든 그룹에 자동 owner 권한
+      admin: true           # 모든 리포지토리에 자동 owner 권한
 
     - username: "dev1"
       password: "dev123"
@@ -17,13 +17,13 @@ auth:
       password: "ci123"
       admin: false
 
-# 서버 시작 시 존재하지 않을 경우에만 생성되는 초기 그룹 정의
-groups:
-  - name: "conan-local"
-    description: "개발용 로컬 패키지"
+# 서버 시작 시 존재하지 않을 경우에만 생성되는 초기 리포지토리 정의
+repositories:
+  - name: "extralib"
+    description: "사내 외부 라이브러리"
     owner: "dev1"
-    conan_user: "corp"       # 이 그룹에 업로드 시 @user 는 반드시 "corp"
-    conan_channel: "dev"     # 이 그룹에 업로드 시 channel은 반드시 "dev"
+    allowed_namespaces: ["sc"]             # @sc 만 허용 (비어있으면 제한 없음)
+    allowed_channels: ["dev", "release"]   # dev, release 만 허용 (비어있으면 제한 없음)
     anonymous_access: "none"
     members:
       - username: "dev1"
@@ -31,10 +31,10 @@ groups:
       - username: "ci"
         permission: "write"
 
-  - name: "conan-stable"
-    description: "안정 릴리즈"
+  - name: "thirdparty"
+    description: "서드파티 읽기 전용 미러"
     owner: "admin"
-    conan_user: ""           # 제한 없음
-    conan_channel: "stable"
+    allowed_namespaces: []   # 제한 없음
+    allowed_channels: []     # 제한 없음
     anonymous_access: "read"
     members: []

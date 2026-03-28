@@ -8,26 +8,26 @@ import (
 )
 
 // requirePermission validates the Bearer token and checks that the user has
-// at least minPerm on the package group named in the {group} path segment.
-// Anonymous access is allowed when the group's anonymous_access meets minPerm.
-// On success the GroupRecord is stored in the request context for handlers.
+// at least minPerm on the repository named in the {repository} path segment.
+// Anonymous access is allowed when the repository's anonymous_access meets minPerm.
+// On success the RepoRecord is stored in the request context for handlers.
 func (s *Server) requirePermission(minPerm auth.Permission, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		groupName := r.PathValue("group")
+		repoName := r.PathValue("repository")
 
-		if strings.ContainsAny(groupName, "/\\.") || groupName == "" {
-			jsonError(w, http.StatusBadRequest, "invalid group name")
+		if strings.ContainsAny(repoName, "/\\.") || repoName == "" {
+			jsonError(w, http.StatusBadRequest, "invalid repository name")
 			return
 		}
 
-		// Load group (also verifies existence)
-		grp, err := s.store.GetGroup(groupName)
+		// Load repository (also verifies existence)
+		repo, err := s.store.GetRepo(repoName)
 		if err != nil {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if grp == nil {
-			jsonError(w, http.StatusNotFound, "group not found: "+groupName)
+		if repo == nil {
+			jsonError(w, http.StatusNotFound, "repository not found: "+repoName)
 			return
 		}
 
@@ -35,12 +35,12 @@ func (s *Server) requirePermission(minPerm auth.Permission, next http.HandlerFun
 
 		if header == "" {
 			// Unauthenticated: check anonymous access setting
-			anonPerm := auth.Permission(grp.AnonymousAccess)
+			anonPerm := auth.Permission(repo.AnonymousAccess)
 			if anonPerm == "" {
 				anonPerm = auth.PermNone
 			}
 			if anonPerm.Satisfies(minPerm) {
-				r = r.WithContext(contextWithGroup(r.Context(), grp))
+				r = r.WithContext(contextWithRepo(r.Context(), repo))
 				next(w, r)
 				return
 			}
@@ -53,38 +53,37 @@ func (s *Server) requirePermission(minPerm auth.Permission, next http.HandlerFun
 			return
 		}
 
-		if !claims.GroupPermission(groupName).Satisfies(minPerm) {
-			jsonError(w, http.StatusForbidden, "insufficient permission on group: "+groupName)
+		if !claims.GroupPermission(repoName).Satisfies(minPerm) {
+			jsonError(w, http.StatusForbidden, "insufficient permission on repository: "+repoName)
 			return
 		}
 
 		ctx := contextWithClaims(r.Context(), claims)
-		ctx = contextWithGroup(ctx, grp)
+		ctx = contextWithRepo(ctx, repo)
 		next(w, r.WithContext(ctx))
 	}
 }
 
-// requireGroupOwnerOrAdmin validates the token and requires that the user is
-// either the global admin or has PermOwner on the group in the path.
-// Used for group settings and member management endpoints.
-func (s *Server) requireGroupOwnerOrAdmin(next http.HandlerFunc) http.HandlerFunc {
+// requireRepoOwnerOrAdmin validates the token and requires that the user is
+// either the global admin or has PermOwner on the repository in the path.
+func (s *Server) requireRepoOwnerOrAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := s.extractClaims(w, r, true)
 		if !ok {
 			return
 		}
 
-		groupName := r.PathValue("group")
-		if !claims.Admin && !claims.GroupPermission(groupName).Satisfies(auth.PermOwner) {
-			jsonError(w, http.StatusForbidden, "group owner or admin required")
+		repoName := r.PathValue("repository")
+		if !claims.Admin && !claims.GroupPermission(repoName).Satisfies(auth.PermOwner) {
+			jsonError(w, http.StatusForbidden, "repository owner or admin required")
 			return
 		}
 
-		// Load group into context (may be needed by handler)
-		grp, _ := s.store.GetGroup(groupName)
+		// Load repo into context (may be needed by handler)
+		repo, _ := s.store.GetRepo(repoName)
 		ctx := contextWithClaims(r.Context(), claims)
-		if grp != nil {
-			ctx = contextWithGroup(ctx, grp)
+		if repo != nil {
+			ctx = contextWithRepo(ctx, repo)
 		}
 		next(w, r.WithContext(ctx))
 	}

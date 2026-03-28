@@ -23,33 +23,33 @@ func NewServer(cfg *config.Config, store *storage.Storage) *Server {
 		store: store,
 		mux:   http.NewServeMux(),
 	}
-	s.seedGroups()
+	s.seedRepos()
 	s.registerRoutes()
 	return s
 }
 
-// seedGroups creates groups from config.yaml if they don't already exist on disk.
-func (s *Server) seedGroups() {
-	for _, gdef := range s.cfg.Groups {
-		members := make([]storage.GroupMember, len(gdef.Members))
-		for i, m := range gdef.Members {
-			members[i] = storage.GroupMember{
+// seedRepos creates repositories from config.yaml if they don't already exist on disk.
+func (s *Server) seedRepos() {
+	for _, rdef := range s.cfg.Repositories {
+		members := make([]storage.RepoMember, len(rdef.Members))
+		for i, m := range rdef.Members {
+			members[i] = storage.RepoMember{
 				Username:   m.Username,
 				Permission: m.Permission,
 			}
 		}
-		if err := s.store.SeedGroup(storage.GroupRecord{
-			Name:            gdef.Name,
-			Description:     gdef.Description,
-			Owner:           gdef.Owner,
-			ConanUser:       gdef.ConanUser,
-			ConanChannel:    gdef.ConanChannel,
-			AnonymousAccess: gdef.AnonymousAccess,
-			Source:          "config",
-			CreatedAt:       time.Now().UTC(),
-			Members:         members,
+		if err := s.store.SeedRepo(storage.RepoRecord{
+			Name:              rdef.Name,
+			Description:       rdef.Description,
+			Owner:             rdef.Owner,
+			AllowedNamespaces: rdef.AllowedNamespaces,
+			AllowedChannels:   rdef.AllowedChannels,
+			AnonymousAccess:   rdef.AnonymousAccess,
+			Source:            "config",
+			CreatedAt:         time.Now().UTC(),
+			Members:           members,
 		}); err != nil {
-			log.Printf("warn: failed to seed group %q: %v", gdef.Name, err)
+			log.Printf("warn: failed to seed repository %q: %v", rdef.Name, err)
 		}
 	}
 }
@@ -71,30 +71,30 @@ func (s *Server) registerRoutes() {
 	// ── Global health check ───────────────────────────────────────────────────
 	m.HandleFunc("GET /ping", s.handlePing)
 
-	// ── Group management API (global, no {group} in path) ────────────────────
-	m.HandleFunc("POST /api/groups", s.adminOnly(s.handleCreateGroup))
-	m.HandleFunc("GET /api/groups", s.adminOnly(s.handleListGroups))
-	m.HandleFunc("GET /api/groups/{group}", s.adminOnly(s.handleGetGroup))
-	m.HandleFunc("PATCH /api/groups/{group}", s.requireGroupOwnerOrAdmin(s.handleUpdateGroup))
-	m.HandleFunc("DELETE /api/groups/{group}", s.adminOnly(s.handleDeleteGroup))
+	// ── Repository management API ─────────────────────────────────────────────
+	m.HandleFunc("POST /api/repos", s.adminOnly(s.handleCreateRepo))
+	m.HandleFunc("GET /api/repos", s.adminOnly(s.handleListRepos))
+	m.HandleFunc("GET /api/repos/{repository}", s.adminOnly(s.handleGetRepo))
+	m.HandleFunc("PATCH /api/repos/{repository}", s.requireRepoOwnerOrAdmin(s.handleUpdateRepo))
+	m.HandleFunc("DELETE /api/repos/{repository}", s.adminOnly(s.handleDeleteRepo))
 
-	// ── Group member management ───────────────────────────────────────────────
-	m.HandleFunc("POST /api/groups/{group}/members", s.requireGroupOwnerOrAdmin(s.handleInviteMember))
-	m.HandleFunc("GET /api/groups/{group}/members", s.requireGroupOwnerOrAdmin(s.handleListMembers))
-	m.HandleFunc("PUT /api/groups/{group}/members/{username}", s.requireGroupOwnerOrAdmin(s.handleUpdateMember))
-	m.HandleFunc("DELETE /api/groups/{group}/members/{username}", s.requireGroupOwnerOrAdmin(s.handleRemoveMember))
+	// ── Repository member management ──────────────────────────────────────────
+	m.HandleFunc("POST /api/repos/{repository}/members", s.requireRepoOwnerOrAdmin(s.handleInviteMember))
+	m.HandleFunc("GET /api/repos/{repository}/members", s.requireRepoOwnerOrAdmin(s.handleListMembers))
+	m.HandleFunc("PUT /api/repos/{repository}/members/{username}", s.requireRepoOwnerOrAdmin(s.handleUpdateMember))
+	m.HandleFunc("DELETE /api/repos/{repository}/members/{username}", s.requireRepoOwnerOrAdmin(s.handleRemoveMember))
 
-	// ── Group-scoped Conan v2 endpoints ───────────────────────────────────────
-	// Conan client remote URL: http://server:9300/{group}
-	m.HandleFunc("GET /{group}/ping", s.handlePing)
-	m.HandleFunc("GET /{group}/v2/users/authenticate", s.handleAuthenticate)
-	m.HandleFunc("GET /{group}/v2/users/check_credentials",
+	// ── Conan v2 endpoints ────────────────────────────────────────────────────
+	// Conan client remote URL: http://server:9300/api/conan/{repository}
+	m.HandleFunc("GET /api/conan/{repository}/v2/ping", s.handlePing)
+	m.HandleFunc("GET /api/conan/{repository}/v2/users/authenticate", s.handleAuthenticate)
+	m.HandleFunc("GET /api/conan/{repository}/v2/users/check_credentials",
 		s.requirePermission(auth.PermRead, s.handleCheckCredentials))
 
-	m.HandleFunc("GET /{group}/v2/conans/search",
+	m.HandleFunc("GET /api/conan/{repository}/v2/conans/search",
 		s.requirePermission(auth.PermRead, s.handleRecipeSearch))
 
-	ref := "/{group}/v2/conans/{name}/{version}/{username}/{channel}"
+	ref := "/api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}"
 
 	m.HandleFunc("GET "+ref+"/revisions",
 		s.requirePermission(auth.PermRead, s.handleListRecipeRevisions))

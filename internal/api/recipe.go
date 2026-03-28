@@ -5,12 +5,12 @@ import (
 	"net/http"
 )
 
-// GET /{group}/v2/conans/search?q=<query>
+// GET /api/conan/{repository}/v2/conans/search?q=<query>
 func (s *Server) handleRecipeSearch(w http.ResponseWriter, r *http.Request) {
-	grp := r.PathValue("group")
+	repo := r.PathValue("repository")
 	query := r.URL.Query().Get("q")
 
-	results, err := s.store.Search(grp, query)
+	results, err := s.store.Search(repo, query)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -21,10 +21,10 @@ func (s *Server) handleRecipeSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
-// GET /{group}/v2/conans/{name}/{version}/{username}/{channel}/revisions
+// GET /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions
 func (s *Server) handleListRecipeRevisions(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel := recipeParams(r)
-	revs, err := s.store.GetRecipeRevisions(grp, name, version, username, channel)
+	repo, name, version, namespace, channel := recipeParams(r)
+	revs, err := s.store.GetRecipeRevisions(repo, name, version, namespace, channel)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -32,10 +32,10 @@ func (s *Server) handleListRecipeRevisions(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"revisions": revs})
 }
 
-// GET /{group}/v2/conans/{name}/{version}/{username}/{channel}/revisions/latest
+// GET /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions/latest
 func (s *Server) handleLatestRecipeRevision(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel := recipeParams(r)
-	revs, err := s.store.GetRecipeRevisions(grp, name, version, username, channel)
+	repo, name, version, namespace, channel := recipeParams(r)
+	revs, err := s.store.GetRecipeRevisions(repo, name, version, namespace, channel)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -47,16 +47,16 @@ func (s *Server) handleLatestRecipeRevision(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, revs[0])
 }
 
-// GET /{group}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files
+// GET /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions/{rrev}/files
 func (s *Server) handleListRecipeFiles(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel := recipeParams(r)
+	repo, name, version, namespace, channel := recipeParams(r)
 	rrev := r.PathValue("rrev")
 
-	if !s.store.RecipeRevisionExists(grp, name, version, username, channel, rrev) {
+	if !s.store.RecipeRevisionExists(repo, name, version, namespace, channel, rrev) {
 		jsonError(w, http.StatusNotFound, "revision not found")
 		return
 	}
-	files, err := s.store.ListRecipeFiles(grp, name, version, username, channel, rrev)
+	files, err := s.store.ListRecipeFiles(repo, name, version, namespace, channel, rrev)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -64,13 +64,13 @@ func (s *Server) handleListRecipeFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"files": files})
 }
 
-// GET /{group}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files/{filename...}
+// GET /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions/{rrev}/files/{filename...}
 func (s *Server) handleDownloadRecipeFile(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel := recipeParams(r)
+	repo, name, version, namespace, channel := recipeParams(r)
 	rrev := r.PathValue("rrev")
 	filename := r.PathValue("filename")
 
-	rc, size, err := s.store.GetRecipeFile(grp, name, version, username, channel, rrev, filename)
+	rc, size, err := s.store.GetRecipeFile(repo, name, version, namespace, channel, rrev, filename)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, "file not found")
 		return
@@ -83,62 +83,71 @@ func (s *Server) handleDownloadRecipeFile(w http.ResponseWriter, r *http.Request
 	streamBody(w, rc)
 }
 
-// PUT /{group}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/files/{filename...}
+// PUT /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions/{rrev}/files/{filename...}
 func (s *Server) handleUploadRecipeFile(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel := recipeParams(r)
+	repo, name, version, namespace, channel := recipeParams(r)
 	rrev := r.PathValue("rrev")
 	filename := r.PathValue("filename")
 
-	// Enforce group-configured @user / @channel constraints
-	if err := validateConanRef(r, username, channel); err != nil {
+	// Enforce repository-configured namespace / channel constraints
+	if err := validateConanRef(r, namespace, channel); err != nil {
 		jsonError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
-	if err := s.store.PutRecipeFile(grp, name, version, username, channel, rrev, filename, r.Body); err != nil {
+	if err := s.store.PutRecipeFile(repo, name, version, namespace, channel, rrev, filename, r.Body); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.store.AddRecipeRevision(grp, name, version, username, channel, rrev); err != nil {
+	if err := s.store.AddRecipeRevision(repo, name, version, namespace, channel, rrev); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
 }
 
-// DELETE /{group}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}
+// DELETE /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions/{rrev}
 func (s *Server) handleDeleteRecipeRevision(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel := recipeParams(r)
+	repo, name, version, namespace, channel := recipeParams(r)
 	rrev := r.PathValue("rrev")
 
-	if !s.store.RecipeRevisionExists(grp, name, version, username, channel, rrev) {
+	if !s.store.RecipeRevisionExists(repo, name, version, namespace, channel, rrev) {
 		jsonError(w, http.StatusNotFound, "revision not found")
 		return
 	}
-	if err := s.store.DeleteRecipeRevision(grp, name, version, username, channel, rrev); err != nil {
+	if err := s.store.DeleteRecipeRevision(repo, name, version, namespace, channel, rrev); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
-func recipeParams(r *http.Request) (grp, name, version, username, channel string) {
-	return r.PathValue("group"), r.PathValue("name"), r.PathValue("version"),
-		r.PathValue("username"), r.PathValue("channel")
+func recipeParams(r *http.Request) (repo, name, version, namespace, channel string) {
+	return r.PathValue("repository"), r.PathValue("name"), r.PathValue("version"),
+		r.PathValue("namespace"), r.PathValue("channel")
 }
 
-// validateConanRef checks whether the @username and @channel in the request
-// URL match the group's configured constraints (if any).
-func validateConanRef(r *http.Request, username, channel string) error {
-	g := groupFromContext(r.Context())
-	if g == nil {
+// validateConanRef checks whether the @namespace and channel in the request URL
+// are within the repository's allowed lists (if configured).
+func validateConanRef(r *http.Request, namespace, channel string) error {
+	repo := repoFromContext(r.Context())
+	if repo == nil {
 		return nil
 	}
-	if g.ConanUser != "" && username != g.ConanUser {
-		return fmt.Errorf("this group requires conan_user=%q (got %q)", g.ConanUser, username)
+	if len(repo.AllowedNamespaces) > 0 && !contains(repo.AllowedNamespaces, namespace) {
+		return fmt.Errorf("namespace %q is not allowed in this repository (allowed: %v)", namespace, repo.AllowedNamespaces)
 	}
-	if g.ConanChannel != "" && channel != g.ConanChannel {
-		return fmt.Errorf("this group requires conan_channel=%q (got %q)", g.ConanChannel, channel)
+	if len(repo.AllowedChannels) > 0 && !contains(repo.AllowedChannels, channel) {
+		return fmt.Errorf("channel %q is not allowed in this repository (allowed: %v)", channel, repo.AllowedChannels)
 	}
 	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

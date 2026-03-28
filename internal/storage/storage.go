@@ -18,24 +18,24 @@ type Revision struct {
 	Time     time.Time `json:"time"`
 }
 
-// GroupMember holds a user's permission within a package group.
-type GroupMember struct {
+// RepoMember holds a user's permission within a repository.
+type RepoMember struct {
 	Username   string `json:"username"`
 	Permission string `json:"permission"` // "read", "write", "delete", "owner"
 }
 
-// GroupRecord is the full definition of a package group, stored as
-// _groups/{name}.json (one file per group).
-type GroupRecord struct {
-	Name            string        `json:"name"`
-	Description     string        `json:"description"`
-	Owner           string        `json:"owner"`
-	ConanUser       string        `json:"conan_user"`    // enforced @user on upload ("" = any)
-	ConanChannel    string        `json:"conan_channel"` // enforced @channel on upload ("" = any)
-	AnonymousAccess string        `json:"anonymous_access"` // "read", "write", "none"
-	Source          string        `json:"source"`           // "config" or "api"
-	CreatedAt       time.Time     `json:"created_at"`
-	Members         []GroupMember `json:"members"`
+// RepoRecord is the full definition of a Conan repository, stored as
+// _repos/{name}.json (one file per repository).
+type RepoRecord struct {
+	Name              string      `json:"name"`
+	Description       string      `json:"description"`
+	Owner             string      `json:"owner"`
+	AllowedNamespaces []string    `json:"allowed_namespaces"` // enforced @namespace on upload (empty = any)
+	AllowedChannels   []string    `json:"allowed_channels"`   // enforced channel on upload (empty = any)
+	AnonymousAccess   string      `json:"anonymous_access"`   // "read", "write", "none"
+	Source            string      `json:"source"`             // "config" or "api"
+	CreatedAt         time.Time   `json:"created_at"`
+	Members           []RepoMember `json:"members"`
 }
 
 // Storage manages all package files on the local filesystem.
@@ -43,10 +43,10 @@ type GroupRecord struct {
 // Directory layout:
 //
 //	{base}/
-//	  _groups/
-//	    {group-name}.json     ← GroupRecord (one file per group)
-//	  {group}/
-//	    {name}/{version}/{username}/{channel}/
+//	  _repos/
+//	    {repo-name}.json      ← RepoRecord (one file per repository)
+//	  {repo}/
+//	    {name}/{version}/{namespace}/{channel}/
 //	      recipe_revisions.json
 //	      {rrev}/
 //	        conanfile.py, conanmanifest.txt, ...
@@ -66,94 +66,94 @@ func New(base string) (*Storage, error) {
 	return &Storage{base: base}, nil
 }
 
-// ─── group registry ───────────────────────────────────────────────────────────
+// ─── repository registry ──────────────────────────────────────────────────────
 
-func (s *Storage) groupsDir() string {
-	return filepath.Join(s.base, "_groups")
+func (s *Storage) reposDir() string {
+	return filepath.Join(s.base, "_repos")
 }
 
-func (s *Storage) groupFile(name string) string {
-	return filepath.Join(s.groupsDir(), name+".json")
+func (s *Storage) repoFile(name string) string {
+	return filepath.Join(s.reposDir(), name+".json")
 }
 
-// GroupExists returns true when a group with the given name is registered.
-func (s *Storage) GroupExists(name string) bool {
+// RepoExists returns true when a repository with the given name is registered.
+func (s *Storage) RepoExists(name string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	_, err := os.Stat(s.groupFile(name))
+	_, err := os.Stat(s.repoFile(name))
 	return err == nil
 }
 
-// GetGroup returns the GroupRecord for name, or (nil, nil) if not found.
-func (s *Storage) GetGroup(name string) (*GroupRecord, error) {
+// GetRepo returns the RepoRecord for name, or (nil, nil) if not found.
+func (s *Storage) GetRepo(name string) (*RepoRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.readGroupFile(name)
+	return s.readRepoFile(name)
 }
 
-// ListGroups returns all registered groups.
-func (s *Storage) ListGroups() ([]GroupRecord, error) {
+// ListRepos returns all registered repositories.
+func (s *Storage) ListRepos() ([]RepoRecord, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	entries, err := os.ReadDir(s.groupsDir())
+	entries, err := os.ReadDir(s.reposDir())
 	if os.IsNotExist(err) {
-		return []GroupRecord{}, nil
+		return []RepoRecord{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	var groups []GroupRecord
+	var repos []RepoRecord
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), ".json")
-		g, err := s.readGroupFile(name)
-		if err != nil || g == nil {
+		r, err := s.readRepoFile(name)
+		if err != nil || r == nil {
 			continue
 		}
-		groups = append(groups, *g)
+		repos = append(repos, *r)
 	}
-	return groups, nil
+	return repos, nil
 }
 
-// SaveGroup writes a GroupRecord to disk (create or overwrite).
-func (s *Storage) SaveGroup(g GroupRecord) error {
+// SaveRepo writes a RepoRecord to disk (create or overwrite).
+func (s *Storage) SaveRepo(r RepoRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.writeGroupFile(g)
+	return s.writeRepoFile(r)
 }
 
-// SeedGroup saves g only if the group does not already exist.
+// SeedRepo saves r only if the repository does not already exist.
 // Used for config.yaml bootstrapping — safe to call on every startup.
-func (s *Storage) SeedGroup(g GroupRecord) error {
+func (s *Storage) SeedRepo(r RepoRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := os.Stat(s.groupFile(g.Name)); err == nil {
+	if _, err := os.Stat(s.repoFile(r.Name)); err == nil {
 		return nil // already exists
 	}
-	return s.writeGroupFile(g)
+	return s.writeRepoFile(r)
 }
 
-// DeleteGroup removes the group registry entry and all its package data.
-func (s *Storage) DeleteGroup(name string) error {
+// DeleteRepo removes the repository registry entry and all its package data.
+func (s *Storage) DeleteRepo(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.Remove(s.groupFile(name)); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(s.repoFile(name)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return os.RemoveAll(filepath.Join(s.base, name))
 }
 
-// GetUserGroupPermissions returns a map of groupName → permissionString for
-// all groups where username is a member or the owner.
-func (s *Storage) GetUserGroupPermissions(username string) (map[string]string, error) {
+// GetUserRepoPermissions returns a map of repoName → permissionString for
+// all repositories where username is a member or the owner.
+func (s *Storage) GetUserRepoPermissions(username string) (map[string]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	entries, err := os.ReadDir(s.groupsDir())
+	entries, err := os.ReadDir(s.reposDir())
 	if os.IsNotExist(err) {
 		return map[string]string{}, nil
 	}
@@ -167,18 +167,18 @@ func (s *Storage) GetUserGroupPermissions(username string) (map[string]string, e
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), ".json")
-		g, err := s.readGroupFile(name)
-		if err != nil || g == nil {
+		r, err := s.readRepoFile(name)
+		if err != nil || r == nil {
 			continue
 		}
 		// Owner always gets "owner" permission
-		if g.Owner == username {
-			result[g.Name] = "owner"
+		if r.Owner == username {
+			result[r.Name] = "owner"
 			continue
 		}
-		for _, m := range g.Members {
+		for _, m := range r.Members {
 			if m.Username == username {
-				result[g.Name] = m.Permission
+				result[r.Name] = m.Permission
 				break
 			}
 		}
@@ -186,88 +186,87 @@ func (s *Storage) GetUserGroupPermissions(username string) (map[string]string, e
 	return result, nil
 }
 
-func (s *Storage) readGroupFile(name string) (*GroupRecord, error) {
-	data, err := os.ReadFile(s.groupFile(name))
+func (s *Storage) readRepoFile(name string) (*RepoRecord, error) {
+	data, err := os.ReadFile(s.repoFile(name))
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var g GroupRecord
-	if err := json.Unmarshal(data, &g); err != nil {
+	var r RepoRecord
+	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, err
 	}
-	return &g, nil
+	return &r, nil
 }
 
-func (s *Storage) writeGroupFile(g GroupRecord) error {
-	if err := os.MkdirAll(s.groupsDir(), 0755); err != nil {
+func (s *Storage) writeRepoFile(r RepoRecord) error {
+	if err := os.MkdirAll(s.reposDir(), 0755); err != nil {
 		return err
 	}
-	// Ensure package data directory exists
-	if err := os.MkdirAll(filepath.Join(s.base, g.Name), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(s.base, r.Name), 0755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(g, "", "  ")
+	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.groupFile(g.Name), data, 0644)
+	return os.WriteFile(s.repoFile(r.Name), data, 0644)
 }
 
 // ─── paths ────────────────────────────────────────────────────────────────────
 
-func (s *Storage) refDir(group, name, version, username, channel string) string {
-	return filepath.Join(s.base, group, name, version, username, channel)
+func (s *Storage) refDir(repo, name, version, namespace, channel string) string {
+	return filepath.Join(s.base, repo, name, version, namespace, channel)
 }
 
-func (s *Storage) recipeRevFile(group, name, version, username, channel string) string {
-	return filepath.Join(s.refDir(group, name, version, username, channel), "recipe_revisions.json")
+func (s *Storage) recipeRevFile(repo, name, version, namespace, channel string) string {
+	return filepath.Join(s.refDir(repo, name, version, namespace, channel), "recipe_revisions.json")
 }
 
-func (s *Storage) recipeFilesDir(group, name, version, username, channel, rrev string) string {
-	return filepath.Join(s.refDir(group, name, version, username, channel), rrev)
+func (s *Storage) recipeFilesDir(repo, name, version, namespace, channel, rrev string) string {
+	return filepath.Join(s.refDir(repo, name, version, namespace, channel), rrev)
 }
 
-func (s *Storage) pkgRevFile(group, name, version, username, channel, pkgid, rrev string) string {
-	return filepath.Join(s.refDir(group, name, version, username, channel), "packages", pkgid, rrev, "pkg_revisions.json")
+func (s *Storage) pkgRevFile(repo, name, version, namespace, channel, pkgid, rrev string) string {
+	return filepath.Join(s.refDir(repo, name, version, namespace, channel), "packages", pkgid, rrev, "pkg_revisions.json")
 }
 
-func (s *Storage) pkgFilesDir(group, name, version, username, channel, pkgid, rrev, prev string) string {
-	return filepath.Join(s.refDir(group, name, version, username, channel), "packages", pkgid, rrev, prev)
+func (s *Storage) pkgFilesDir(repo, name, version, namespace, channel, pkgid, rrev, prev string) string {
+	return filepath.Join(s.refDir(repo, name, version, namespace, channel), "packages", pkgid, rrev, prev)
 }
 
 // ─── recipe revisions ─────────────────────────────────────────────────────────
 
-func (s *Storage) GetRecipeRevisions(group, name, version, username, channel string) ([]Revision, error) {
+func (s *Storage) GetRecipeRevisions(repo, name, version, namespace, channel string) ([]Revision, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return readRevisions(s.recipeRevFile(group, name, version, username, channel))
+	return readRevisions(s.recipeRevFile(repo, name, version, namespace, channel))
 }
 
-func (s *Storage) AddRecipeRevision(group, name, version, username, channel, rrev string) error {
+func (s *Storage) AddRecipeRevision(repo, name, version, namespace, channel, rrev string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.MkdirAll(s.refDir(group, name, version, username, channel), 0755); err != nil {
+	if err := os.MkdirAll(s.refDir(repo, name, version, namespace, channel), 0755); err != nil {
 		return err
 	}
-	return appendRevision(s.recipeRevFile(group, name, version, username, channel), rrev)
+	return appendRevision(s.recipeRevFile(repo, name, version, namespace, channel), rrev)
 }
 
-func (s *Storage) DeleteRecipeRevision(group, name, version, username, channel, rrev string) error {
+func (s *Storage) DeleteRecipeRevision(repo, name, version, namespace, channel, rrev string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.RemoveAll(s.recipeFilesDir(group, name, version, username, channel, rrev)); err != nil {
+	if err := os.RemoveAll(s.recipeFilesDir(repo, name, version, namespace, channel, rrev)); err != nil {
 		return err
 	}
-	return removeRevision(s.recipeRevFile(group, name, version, username, channel), rrev)
+	return removeRevision(s.recipeRevFile(repo, name, version, namespace, channel), rrev)
 }
 
-func (s *Storage) RecipeRevisionExists(group, name, version, username, channel, rrev string) bool {
+func (s *Storage) RecipeRevisionExists(repo, name, version, namespace, channel, rrev string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	revs, err := readRevisions(s.recipeRevFile(group, name, version, username, channel))
+	revs, err := readRevisions(s.recipeRevFile(repo, name, version, namespace, channel))
 	if err != nil {
 		return false
 	}
@@ -281,16 +280,16 @@ func (s *Storage) RecipeRevisionExists(group, name, version, username, channel, 
 
 // ─── recipe files ─────────────────────────────────────────────────────────────
 
-func (s *Storage) ListRecipeFiles(group, name, version, username, channel, rrev string) (map[string]string, error) {
+func (s *Storage) ListRecipeFiles(repo, name, version, namespace, channel, rrev string) (map[string]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return listFiles(s.recipeFilesDir(group, name, version, username, channel, rrev))
+	return listFiles(s.recipeFilesDir(repo, name, version, namespace, channel, rrev))
 }
 
-func (s *Storage) GetRecipeFile(group, name, version, username, channel, rrev, filename string) (io.ReadCloser, int64, error) {
+func (s *Storage) GetRecipeFile(repo, name, version, namespace, channel, rrev, filename string) (io.ReadCloser, int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	path, err := safeJoin(s.recipeFilesDir(group, name, version, username, channel, rrev), filename)
+	path, err := safeJoin(s.recipeFilesDir(repo, name, version, namespace, channel, rrev), filename)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -302,43 +301,43 @@ func (s *Storage) GetRecipeFile(group, name, version, username, channel, rrev, f
 	return f, info.Size(), nil
 }
 
-func (s *Storage) PutRecipeFile(group, name, version, username, channel, rrev, filename string, r io.Reader) error {
+func (s *Storage) PutRecipeFile(repo, name, version, namespace, channel, rrev, filename string, r io.Reader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return writeFile(s.recipeFilesDir(group, name, version, username, channel, rrev), filename, r)
+	return writeFile(s.recipeFilesDir(repo, name, version, namespace, channel, rrev), filename, r)
 }
 
 // ─── package revisions ────────────────────────────────────────────────────────
 
-func (s *Storage) GetPackageRevisions(group, name, version, username, channel, pkgid, rrev string) ([]Revision, error) {
+func (s *Storage) GetPackageRevisions(repo, name, version, namespace, channel, pkgid, rrev string) ([]Revision, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return readRevisions(s.pkgRevFile(group, name, version, username, channel, pkgid, rrev))
+	return readRevisions(s.pkgRevFile(repo, name, version, namespace, channel, pkgid, rrev))
 }
 
-func (s *Storage) AddPackageRevision(group, name, version, username, channel, pkgid, rrev, prev string) error {
+func (s *Storage) AddPackageRevision(repo, name, version, namespace, channel, pkgid, rrev, prev string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := filepath.Dir(s.pkgRevFile(group, name, version, username, channel, pkgid, rrev))
+	dir := filepath.Dir(s.pkgRevFile(repo, name, version, namespace, channel, pkgid, rrev))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	return appendRevision(s.pkgRevFile(group, name, version, username, channel, pkgid, rrev), prev)
+	return appendRevision(s.pkgRevFile(repo, name, version, namespace, channel, pkgid, rrev), prev)
 }
 
-func (s *Storage) DeletePackageRevision(group, name, version, username, channel, pkgid, rrev, prev string) error {
+func (s *Storage) DeletePackageRevision(repo, name, version, namespace, channel, pkgid, rrev, prev string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.RemoveAll(s.pkgFilesDir(group, name, version, username, channel, pkgid, rrev, prev)); err != nil {
+	if err := os.RemoveAll(s.pkgFilesDir(repo, name, version, namespace, channel, pkgid, rrev, prev)); err != nil {
 		return err
 	}
-	return removeRevision(s.pkgRevFile(group, name, version, username, channel, pkgid, rrev), prev)
+	return removeRevision(s.pkgRevFile(repo, name, version, namespace, channel, pkgid, rrev), prev)
 }
 
-func (s *Storage) PackageRevisionExists(group, name, version, username, channel, pkgid, rrev, prev string) bool {
+func (s *Storage) PackageRevisionExists(repo, name, version, namespace, channel, pkgid, rrev, prev string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	revs, err := readRevisions(s.pkgRevFile(group, name, version, username, channel, pkgid, rrev))
+	revs, err := readRevisions(s.pkgRevFile(repo, name, version, namespace, channel, pkgid, rrev))
 	if err != nil {
 		return false
 	}
@@ -352,16 +351,16 @@ func (s *Storage) PackageRevisionExists(group, name, version, username, channel,
 
 // ─── package files ────────────────────────────────────────────────────────────
 
-func (s *Storage) ListPackageFiles(group, name, version, username, channel, pkgid, rrev, prev string) (map[string]string, error) {
+func (s *Storage) ListPackageFiles(repo, name, version, namespace, channel, pkgid, rrev, prev string) (map[string]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return listFiles(s.pkgFilesDir(group, name, version, username, channel, pkgid, rrev, prev))
+	return listFiles(s.pkgFilesDir(repo, name, version, namespace, channel, pkgid, rrev, prev))
 }
 
-func (s *Storage) GetPackageFile(group, name, version, username, channel, pkgid, rrev, prev, filename string) (io.ReadCloser, int64, error) {
+func (s *Storage) GetPackageFile(repo, name, version, namespace, channel, pkgid, rrev, prev, filename string) (io.ReadCloser, int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	path, err := safeJoin(s.pkgFilesDir(group, name, version, username, channel, pkgid, rrev, prev), filename)
+	path, err := safeJoin(s.pkgFilesDir(repo, name, version, namespace, channel, pkgid, rrev, prev), filename)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -373,23 +372,23 @@ func (s *Storage) GetPackageFile(group, name, version, username, channel, pkgid,
 	return f, info.Size(), nil
 }
 
-func (s *Storage) PutPackageFile(group, name, version, username, channel, pkgid, rrev, prev, filename string, r io.Reader) error {
+func (s *Storage) PutPackageFile(repo, name, version, namespace, channel, pkgid, rrev, prev, filename string, r io.Reader) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return writeFile(s.pkgFilesDir(group, name, version, username, channel, pkgid, rrev, prev), filename, r)
+	return writeFile(s.pkgFilesDir(repo, name, version, namespace, channel, pkgid, rrev, prev), filename, r)
 }
 
 // ─── search ───────────────────────────────────────────────────────────────────
 
-// Search returns package references matching a glob query within a group.
-func (s *Storage) Search(group, query string) ([]string, error) {
+// Search returns package references matching a glob query within a repository.
+func (s *Storage) Search(repo, query string) ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	groupDir := filepath.Join(s.base, group)
+	repoDir := filepath.Join(s.base, repo)
 	var results []string
 
-	names, err := os.ReadDir(groupDir)
+	names, err := os.ReadDir(repoDir)
 	if err != nil {
 		return nil, nil
 	}
@@ -398,26 +397,26 @@ func (s *Storage) Search(group, query string) ([]string, error) {
 			continue
 		}
 		pkgName := nameEntry.Name()
-		versions, _ := os.ReadDir(filepath.Join(groupDir, pkgName))
+		versions, _ := os.ReadDir(filepath.Join(repoDir, pkgName))
 		for _, vEntry := range versions {
 			if !vEntry.IsDir() {
 				continue
 			}
 			version := vEntry.Name()
-			users, _ := os.ReadDir(filepath.Join(groupDir, pkgName, version))
-			for _, uEntry := range users {
-				if !uEntry.IsDir() {
+			namespaces, _ := os.ReadDir(filepath.Join(repoDir, pkgName, version))
+			for _, nsEntry := range namespaces {
+				if !nsEntry.IsDir() {
 					continue
 				}
-				conanUser := uEntry.Name()
-				channels, _ := os.ReadDir(filepath.Join(groupDir, pkgName, version, conanUser))
+				namespace := nsEntry.Name()
+				channels, _ := os.ReadDir(filepath.Join(repoDir, pkgName, version, namespace))
 				for _, cEntry := range channels {
 					if !cEntry.IsDir() {
 						continue
 					}
 					channel := cEntry.Name()
-					ref := fmt.Sprintf("%s/%s@%s/%s", pkgName, version, conanUser, channel)
-					if matchQuery(query, ref, pkgName, version, conanUser, channel) {
+					ref := fmt.Sprintf("%s/%s@%s/%s", pkgName, version, namespace, channel)
+					if matchQuery(query, ref, pkgName, version, namespace, channel) {
 						results = append(results, ref)
 					}
 				}
@@ -428,7 +427,7 @@ func (s *Storage) Search(group, query string) ([]string, error) {
 	return results, nil
 }
 
-func matchQuery(query, ref, name, version, username, channel string) bool {
+func matchQuery(query, ref, name, version, namespace, channel string) bool {
 	if query == "" || query == "*" {
 		return true
 	}

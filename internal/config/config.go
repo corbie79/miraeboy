@@ -7,22 +7,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// InitialMember seeds a group's member list at startup.
+// InitialMember seeds a repository's member list at startup.
 type InitialMember struct {
 	Username   string `yaml:"username"`
 	Permission string `yaml:"permission"` // "read", "write", "delete", "owner"
 }
 
-// GroupDef defines a package group declared in config.yaml.
+// RepoDef defines a Conan repository declared in config.yaml.
 // Used only for initial seeding — once stored on disk, the API manages everything.
-type GroupDef struct {
-	Name            string          `yaml:"name"`
-	Description     string          `yaml:"description"`
-	Owner           string          `yaml:"owner"`
-	ConanUser       string          `yaml:"conan_user"`       // enforced @user on upload ("" = any)
-	ConanChannel    string          `yaml:"conan_channel"`    // enforced @channel on upload ("" = any)
-	AnonymousAccess string          `yaml:"anonymous_access"` // "read", "write", "none"
-	Members         []InitialMember `yaml:"members"`
+type RepoDef struct {
+	Name              string          `yaml:"name"`
+	Description       string          `yaml:"description"`
+	Owner             string          `yaml:"owner"`
+	AllowedNamespaces []string        `yaml:"allowed_namespaces"` // enforced @namespace on upload (empty = any)
+	AllowedChannels   []string        `yaml:"allowed_channels"`   // enforced channel on upload (empty = any)
+	AnonymousAccess   string          `yaml:"anonymous_access"`   // "read", "write", "none"
+	Members           []InitialMember `yaml:"members"`
 }
 
 // User represents a server account.
@@ -43,9 +43,9 @@ type ServerConfig struct {
 }
 
 type Config struct {
-	Server ServerConfig `yaml:"server"`
-	Auth   AuthConfig   `yaml:"auth"`
-	Groups []GroupDef   `yaml:"groups"`
+	Server       ServerConfig `yaml:"server"`
+	Auth         AuthConfig   `yaml:"auth"`
+	Repositories []RepoDef    `yaml:"repositories"`
 }
 
 func Load() *Config {

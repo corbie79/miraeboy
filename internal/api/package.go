@@ -6,10 +6,10 @@ import (
 	"net/http"
 )
 
-// GET /{group}/v2/conans/{name}/{version}/{username}/{channel}/revisions/{rrev}/packages/{pkgid}/revisions
+// GET /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions/{rrev}/packages/{pkgid}/revisions
 func (s *Server) handleListPackageRevisions(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel, rrev, pkgid := pkgParams(r)
-	revs, err := s.store.GetPackageRevisions(grp, name, version, username, channel, pkgid, rrev)
+	repo, name, version, namespace, channel, rrev, pkgid := pkgParams(r)
+	revs, err := s.store.GetPackageRevisions(repo, name, version, namespace, channel, pkgid, rrev)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -19,8 +19,8 @@ func (s *Server) handleListPackageRevisions(w http.ResponseWriter, r *http.Reque
 
 // GET .../packages/{pkgid}/revisions/latest
 func (s *Server) handleLatestPackageRevision(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel, rrev, pkgid := pkgParams(r)
-	revs, err := s.store.GetPackageRevisions(grp, name, version, username, channel, pkgid, rrev)
+	repo, name, version, namespace, channel, rrev, pkgid := pkgParams(r)
+	revs, err := s.store.GetPackageRevisions(repo, name, version, namespace, channel, pkgid, rrev)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -34,14 +34,14 @@ func (s *Server) handleLatestPackageRevision(w http.ResponseWriter, r *http.Requ
 
 // GET .../packages/{pkgid}/revisions/{prev}/files
 func (s *Server) handleListPackageFiles(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel, rrev, pkgid := pkgParams(r)
+	repo, name, version, namespace, channel, rrev, pkgid := pkgParams(r)
 	prev := r.PathValue("prev")
 
-	if !s.store.PackageRevisionExists(grp, name, version, username, channel, pkgid, rrev, prev) {
+	if !s.store.PackageRevisionExists(repo, name, version, namespace, channel, pkgid, rrev, prev) {
 		jsonError(w, http.StatusNotFound, "package revision not found")
 		return
 	}
-	files, err := s.store.ListPackageFiles(grp, name, version, username, channel, pkgid, rrev, prev)
+	files, err := s.store.ListPackageFiles(repo, name, version, namespace, channel, pkgid, rrev, prev)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -51,11 +51,11 @@ func (s *Server) handleListPackageFiles(w http.ResponseWriter, r *http.Request) 
 
 // GET .../packages/{pkgid}/revisions/{prev}/files/{filename...}
 func (s *Server) handleDownloadPackageFile(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel, rrev, pkgid := pkgParams(r)
+	repo, name, version, namespace, channel, rrev, pkgid := pkgParams(r)
 	prev := r.PathValue("prev")
 	filename := r.PathValue("filename")
 
-	rc, size, err := s.store.GetPackageFile(grp, name, version, username, channel, pkgid, rrev, prev, filename)
+	rc, size, err := s.store.GetPackageFile(repo, name, version, namespace, channel, pkgid, rrev, prev, filename)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, "file not found")
 		return
@@ -70,21 +70,21 @@ func (s *Server) handleDownloadPackageFile(w http.ResponseWriter, r *http.Reques
 
 // PUT .../packages/{pkgid}/revisions/{prev}/files/{filename...}
 func (s *Server) handleUploadPackageFile(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel, rrev, pkgid := pkgParams(r)
+	repo, name, version, namespace, channel, rrev, pkgid := pkgParams(r)
 	prev := r.PathValue("prev")
 	filename := r.PathValue("filename")
 
-	// Enforce group-configured @user / @channel constraints
-	if err := validateConanRef(r, username, channel); err != nil {
+	// Enforce repository-configured namespace / channel constraints
+	if err := validateConanRef(r, namespace, channel); err != nil {
 		jsonError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
-	if err := s.store.PutPackageFile(grp, name, version, username, channel, pkgid, rrev, prev, filename, r.Body); err != nil {
+	if err := s.store.PutPackageFile(repo, name, version, namespace, channel, pkgid, rrev, prev, filename, r.Body); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.store.AddPackageRevision(grp, name, version, username, channel, pkgid, rrev, prev); err != nil {
+	if err := s.store.AddPackageRevision(repo, name, version, namespace, channel, pkgid, rrev, prev); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -93,23 +93,23 @@ func (s *Server) handleUploadPackageFile(w http.ResponseWriter, r *http.Request)
 
 // DELETE .../packages/{pkgid}/revisions/{prev}
 func (s *Server) handleDeletePackageRevision(w http.ResponseWriter, r *http.Request) {
-	grp, name, version, username, channel, rrev, pkgid := pkgParams(r)
+	repo, name, version, namespace, channel, rrev, pkgid := pkgParams(r)
 	prev := r.PathValue("prev")
 
-	if !s.store.PackageRevisionExists(grp, name, version, username, channel, pkgid, rrev, prev) {
+	if !s.store.PackageRevisionExists(repo, name, version, namespace, channel, pkgid, rrev, prev) {
 		jsonError(w, http.StatusNotFound, "package revision not found")
 		return
 	}
-	if err := s.store.DeletePackageRevision(grp, name, version, username, channel, pkgid, rrev, prev); err != nil {
+	if err := s.store.DeletePackageRevision(repo, name, version, namespace, channel, pkgid, rrev, prev); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
-func pkgParams(r *http.Request) (grp, name, version, username, channel, rrev, pkgid string) {
-	return r.PathValue("group"), r.PathValue("name"), r.PathValue("version"),
-		r.PathValue("username"), r.PathValue("channel"),
+func pkgParams(r *http.Request) (repo, name, version, namespace, channel, rrev, pkgid string) {
+	return r.PathValue("repository"), r.PathValue("name"), r.PathValue("version"),
+		r.PathValue("namespace"), r.PathValue("channel"),
 		r.PathValue("rrev"), r.PathValue("pkgid")
 }
 
