@@ -79,12 +79,22 @@ func IssueToken(secret, username string, admin bool, groups map[string]Permissio
 
 // ValidateToken parses and validates a JWT, returning the claims.
 func ValidateToken(secret, tokenStr string) (*Claims, error) {
+	return ValidateTokenWithLeeway(secret, tokenStr, 0)
+}
+
+// ValidateTokenWithLeeway validates a JWT but allows tokens that expired within
+// the given leeway window. Used by the refresh endpoint to accept recently-expired tokens.
+func ValidateTokenWithLeeway(secret, tokenStr string, leeway time.Duration) (*Claims, error) {
+	opts := []jwt.ParserOption{}
+	if leeway > 0 {
+		opts = append(opts, jwt.WithLeeway(leeway))
+	}
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return []byte(secret), nil
-	})
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}

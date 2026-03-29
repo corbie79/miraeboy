@@ -127,6 +127,7 @@ func (s *Server) registerRoutes() {
 
 	// ── Web UI auth ───────────────────────────────────────────────────────────
 	m.HandleFunc("POST /api/auth/login", s.handleWebLogin)
+	m.HandleFunc("POST /api/auth/refresh", s.handleRefreshToken)
 
 	// ── OIDC SSO ──────────────────────────────────────────────────────────────
 	m.HandleFunc("GET /api/auth/oidc/status", s.handleOIDCStatus)

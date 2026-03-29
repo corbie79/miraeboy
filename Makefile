@@ -16,20 +16,36 @@ BINARY    = miraeboy
 AGENT     = miraeboy-agent
 CTL       = mboy
 
-.PHONY: all web linux darwin windows agent ctl release clean help
+# S3 지원 빌드: make S3=1
+# minio-go/v7 의존성이 go.mod에 있어야 합니다 (make s3-deps 로 추가)
+ifdef S3
+  BUILD_TAGS = -tags s3
+else
+  BUILD_TAGS =
+endif
+
+.PHONY: all web linux darwin windows agent ctl s3-deps release clean help
 
 all: web linux darwin windows agent ctl
 
 help:
-	@echo "make [target] [VERSION=v1.0.0]"
+	@echo "make [target] [VERSION=v1.0.0] [S3=1]"
 	@echo ""
-	@echo "  all      모든 플랫폼 빌드 + agent (기본값)"
-	@echo "  linux    linux/amd64, linux/arm64"
-	@echo "  darwin   darwin/amd64 (Intel), darwin/arm64 (Apple Silicon)"
-	@echo "  windows  windows/amd64"
-	@echo "  agent    miraeboy-agent 전 플랫폼 빌드"
-	@echo "  release  빌드 + 아카이브 생성 (.tar.gz / .zip)"
-	@echo "  clean    dist/ 삭제"
+	@echo "  all        모든 플랫폼 빌드 + agent (기본값)"
+	@echo "  linux      linux/amd64, linux/arm64"
+	@echo "  darwin     darwin/amd64 (Intel), darwin/arm64 (Apple Silicon)"
+	@echo "  windows    windows/amd64"
+	@echo "  agent      miraeboy-agent 전 플랫폼 빌드"
+	@echo "  s3-deps    minio-go/v7 의존성 추가 (S3 빌드 전 1회 실행)"
+	@echo "  S3=1       S3 지원 포함 빌드 (make S3=1 linux 등)"
+	@echo "  release    빌드 + 아카이브 생성 (.tar.gz / .zip)"
+	@echo "  clean      dist/ 삭제"
+
+s3-deps:
+	@echo "==> Adding minio-go/v7 dependency..."
+	@go get github.com/minio/minio-go/v7@latest
+	@go mod tidy
+	@echo "Done. Build with: make S3=1"
 
 web:
 	@echo "==> Frontend build"
@@ -40,19 +56,19 @@ $(OUTDIR):
 
 linux: web $(OUTDIR)
 	@echo "==> linux/amd64"
-	@GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-linux-amd64 .
+	@GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build $(BUILD_TAGS) -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-linux-amd64 .
 	@echo "==> linux/arm64"
-	@GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-linux-arm64 .
+	@GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build $(BUILD_TAGS) -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-linux-arm64 .
 
 darwin: web $(OUTDIR)
 	@echo "==> darwin/amd64"
-	@GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-darwin-amd64 .
+	@GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build $(BUILD_TAGS) -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-darwin-amd64 .
 	@echo "==> darwin/arm64"
-	@GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-darwin-arm64 .
+	@GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build $(BUILD_TAGS) -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-darwin-arm64 .
 
 windows: web $(OUTDIR)
 	@echo "==> windows/amd64"
-	@GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-windows-amd64.exe .
+	@GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $(BUILD_TAGS) -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-windows-amd64.exe .
 
 ctl: $(OUTDIR)
 	@echo "==> mboy linux/amd64"

@@ -86,3 +86,38 @@ export const members = {
 export const packages = {
   search: (repo, query) => api.get(`/api/conan/${repo}/v2/conans/search?q=${encodeURIComponent(query || '*')}`),
 }
+
+// Users (admin only)
+export const users = {
+  list: () => api.get('/api/users'),
+  get: (username) => api.get(`/api/users/${username}`),
+  create: (body) => api.post('/api/users', body),
+  update: (username, body) => api.patch(`/api/users/${username}`, body),
+  delete: (username) => api.delete(`/api/users/${username}`),
+}
+
+// Cargo search
+export const cargo = {
+  search: (repo, query) => api.get(`/cargo/${repo}/api/v1/crates?q=${encodeURIComponent(query || '')}`),
+  yank: (repo, name, version) => api.delete(`/cargo/${repo}/api/v1/crates/${name}/${version}/yank`),
+  unyank: (repo, name, version) => api.put(`/cargo/${repo}/api/v1/crates/${name}/${version}/unyank`),
+}
+
+// Builds
+export const builds = {
+  list: () => api.get('/api/builds'),
+  get: (id) => api.get(`/api/builds/${id}`),
+  trigger: (body) => api.post('/api/builds', body),
+}
+
+// Token refresh
+export async function refreshToken() {
+  const res = await fetch('/api/auth/refresh', {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+  })
+  if (!res.ok) return null
+  const data = await res.json()
+  if (data.token) setToken(data.token)
+  return data.token
+}

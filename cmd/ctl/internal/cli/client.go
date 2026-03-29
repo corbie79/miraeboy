@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,7 +31,62 @@ func (c *Client) ServerURL() string {
 
 // do performs an HTTP request and returns the response body.
 // On non-2xx status it returns an error containing the response body.
+// tokenExpired returns true if the stored token has expired or will expire
+// within the next minute.
+func (c *Client) tokenExpired() bool {
+	if c.cfg.Token == "" {
+		return false
+	}
+	parts := strings.Split(c.cfg.Token, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	var claims struct {
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return false
+	}
+	return time.Now().Add(time.Minute).After(time.Unix(claims.Exp, 0))
+}
+
+// refreshToken calls POST /api/auth/refresh and updates the stored token.
+func (c *Client) refreshToken() {
+	req, err := http.NewRequest("POST", c.ServerURL()+"/api/auth/refresh", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+
+	resp, err := c.http.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return
+	}
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+	var result struct {
+		Token string `json:"token"`
+	}
+	if json.Unmarshal(data, &result) == nil && result.Token != "" {
+		c.cfg.Token = result.Token
+		_ = SaveConfig(c.cfg) // persist refreshed token
+	}
+}
+
 func (c *Client) do(method, path string, body any) ([]byte, int, error) {
+	// Auto-refresh token when it's about to expire.
+	if c.tokenExpired() {
+		c.refreshToken()
+	}
+
 	var bodyReader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
