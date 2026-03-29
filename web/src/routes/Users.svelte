@@ -107,8 +107,9 @@
       <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Create User</h2>
       <form onsubmit={handleCreate} class="flex flex-wrap gap-2 items-end">
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-slate-500 dark:text-slate-400">Username</label>
+          <label for="new-username" class="text-xs text-slate-500 dark:text-slate-400">Username</label>
           <input
+            id="new-username"
             bind:value={newUsername}
             placeholder="username"
             required
@@ -116,8 +117,9 @@
           />
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-slate-500 dark:text-slate-400">Password</label>
+          <label for="new-password" class="text-xs text-slate-500 dark:text-slate-400">Password</label>
           <input
+            id="new-password"
             bind:value={newPassword}
             type="password"
             placeholder="password"

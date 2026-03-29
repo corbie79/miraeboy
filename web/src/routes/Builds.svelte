@@ -105,8 +105,9 @@
       <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Trigger Build</h2>
       <form onsubmit={handleTrigger} class="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-slate-500 dark:text-slate-400">Repo name</label>
+          <label for="trigger-repo" class="text-xs text-slate-500 dark:text-slate-400">Repo name</label>
           <input
+            id="trigger-repo"
             bind:value={triggerRepo}
             placeholder="my-repo"
             required
@@ -114,8 +115,9 @@
           />
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-slate-500 dark:text-slate-400">Git URL</label>
+          <label for="trigger-git-url" class="text-xs text-slate-500 dark:text-slate-400">Git URL</label>
           <input
+            id="trigger-git-url"
             bind:value={triggerGitUrl}
             placeholder="https://github.com/org/repo.git"
             required
@@ -123,8 +125,9 @@
           />
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-slate-500 dark:text-slate-400">Ref (branch/tag/commit)</label>
+          <label for="trigger-ref" class="text-xs text-slate-500 dark:text-slate-400">Ref (branch/tag/commit)</label>
           <input
+            id="trigger-ref"
             bind:value={triggerRef}
             placeholder="main"
             required
@@ -132,8 +135,9 @@
           />
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-slate-500 dark:text-slate-400">Platforms (comma-separated)</label>
+          <label for="trigger-platforms" class="text-xs text-slate-500 dark:text-slate-400">Platforms (comma-separated)</label>
           <input
+            id="trigger-platforms"
             bind:value={triggerPlatforms}
             placeholder="linux/amd64, linux/arm64"
             class="px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
