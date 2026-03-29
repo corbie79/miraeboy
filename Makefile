@@ -14,10 +14,11 @@ LDFLAGS   = -s -w -X main.Version=$(VERSION)
 OUTDIR    = dist
 BINARY    = miraeboy
 AGENT     = miraeboy-agent
+CTL       = miraeboy-ctl
 
-.PHONY: all web linux darwin windows agent release clean help
+.PHONY: all web linux darwin windows agent ctl release clean help
 
-all: web linux darwin windows agent
+all: web linux darwin windows agent ctl
 
 help:
 	@echo "make [target] [VERSION=v1.0.0]"
@@ -53,6 +54,18 @@ windows: web $(OUTDIR)
 	@echo "==> windows/amd64"
 	@GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-windows-amd64.exe .
 
+ctl: $(OUTDIR)
+	@echo "==> miraeboy-ctl linux/amd64"
+	@GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-linux-amd64   ./cmd/ctl
+	@echo "==> miraeboy-ctl linux/arm64"
+	@GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-linux-arm64   ./cmd/ctl
+	@echo "==> miraeboy-ctl darwin/amd64"
+	@GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-darwin-amd64  ./cmd/ctl
+	@echo "==> miraeboy-ctl darwin/arm64"
+	@GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-darwin-arm64  ./cmd/ctl
+	@echo "==> miraeboy-ctl windows/amd64"
+	@GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-windows-amd64.exe ./cmd/ctl
+
 agent: $(OUTDIR)
 	@echo "==> miraeboy-agent linux/amd64"
 	@GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(AGENT)-linux-amd64   ./cmd/build-agent
@@ -71,14 +84,18 @@ release: all
 	  for f in $(BINARY)-linux-amd64 $(BINARY)-linux-arm64 \
 	           $(BINARY)-darwin-amd64 $(BINARY)-darwin-arm64 \
 	           $(AGENT)-linux-amd64  $(AGENT)-linux-arm64 \
-	           $(AGENT)-darwin-amd64 $(AGENT)-darwin-arm64; do \
+	           $(AGENT)-darwin-amd64 $(AGENT)-darwin-arm64 \
+	           $(CTL)-linux-amd64    $(CTL)-linux-arm64 \
+	           $(CTL)-darwin-amd64   $(CTL)-darwin-arm64; do \
 	    tar czf $$f-$(VERSION).tar.gz $$f && echo "  $$f-$(VERSION).tar.gz"; \
 	  done
 	@cd $(OUTDIR) && \
 	  zip -q $(BINARY)-windows-amd64-$(VERSION).zip $(BINARY)-windows-amd64.exe && \
 	  echo "  $(BINARY)-windows-amd64-$(VERSION).zip" && \
 	  zip -q $(AGENT)-windows-amd64-$(VERSION).zip   $(AGENT)-windows-amd64.exe  && \
-	  echo "  $(AGENT)-windows-amd64-$(VERSION).zip"
+	  echo "  $(AGENT)-windows-amd64-$(VERSION).zip" && \
+	  zip -q $(CTL)-windows-amd64-$(VERSION).zip     $(CTL)-windows-amd64.exe    && \
+	  echo "  $(CTL)-windows-amd64-$(VERSION).zip"
 	@echo "==> Generating checksums..."
 	@cd $(OUTDIR) && sha256sum *.tar.gz *.zip > checksums.txt && echo "  checksums.txt"
 	@echo "==> Done. Artifacts in $(OUTDIR)/"

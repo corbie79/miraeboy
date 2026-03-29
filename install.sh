@@ -25,18 +25,19 @@ REPO="corbie79/miraeboy"
 BASE_URL="${MIRAEBOY_BASE_URL:-https://github.com/${REPO}}"
 VERSION="${MIRAEBOY_VERSION:-}"
 INSTALL_DIR="${MIRAEBOY_INSTALL_DIR:-}"
-BINARY="miraeboy"   # --agent 플래그로 miraeboy-agent로 변경
+BINARY="miraeboy"   # --agent / --ctl 플래그로 변경 가능
 
 # ─── 인자 파싱 ────────────────────────────────────────────────────────────────
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --agent)       BINARY="miraeboy-agent"; shift ;;
+        --ctl)         BINARY="miraeboy-ctl";   shift ;;
         --version)     VERSION="$2";            shift 2 ;;
         --install-dir) INSTALL_DIR="$2";        shift 2 ;;
         --base-url)    BASE_URL="$2";           shift 2 ;;
         -h|--help)
-            echo "Usage: install.sh [--agent] [--version v1.x.x] [--install-dir DIR]"
+            echo "Usage: install.sh [--agent|--ctl] [--version v1.x.x] [--install-dir DIR]"
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -168,12 +169,20 @@ case ":${PATH}:" in
         ;;
 esac
 
-if [ "$BINARY" = "miraeboy" ]; then
-    echo "  Quick start:"
-    echo "    miraeboy --help"
-    echo "    # config.yaml 편집 후:"
-    echo "    miraeboy"
-else
-    echo "  Quick start:"
-    echo "    miraeboy-agent --server http://miraeboy.example.com:9300 --agent-key YOUR_KEY"
-fi
+case "$BINARY" in
+    miraeboy)
+        echo "  Quick start:"
+        echo "    miraeboy --help"
+        echo "    # config.yaml 편집 후:"
+        echo "    miraeboy"
+        ;;
+    miraeboy-ctl)
+        echo "  Quick start:"
+        echo "    miraeboy-ctl login --server http://miraeboy.example.com:9300"
+        echo "    miraeboy-ctl repo list"
+        ;;
+    miraeboy-agent)
+        echo "  Quick start:"
+        echo "    miraeboy-agent --server http://miraeboy.example.com:9300 --agent-key YOUR_KEY"
+        ;;
+esac
