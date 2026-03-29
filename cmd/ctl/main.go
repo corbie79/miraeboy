@@ -190,6 +190,14 @@ func main() {
 		}
 		runErr = cli.CmdCompletion(shell)
 
+	case "init":
+		kind := sub
+		if kind == "" {
+			fmt.Fprintln(os.Stderr, "사용법: mboy init <conan|cargo|team> [옵션]")
+			os.Exit(1)
+		}
+		runErr = cli.CmdInit(kind, rest)
+
 	case "version":
 		fmt.Println(version)
 
@@ -259,6 +267,10 @@ func usage() {
   build list                       빌드 목록
   build trigger --repo NAME        빌드 트리거
   build get <id>                   빌드 상태 조회
+
+  init conan [옵션]                Conan 프로젝트 템플릿 생성
+  init cargo [옵션]                Cargo 크레이트 템플릿 생성
+  init team  [옵션]                팀 온보딩 설정 파일 생성
 
   completion <bash|zsh|fish>       쉘 자동완성 스크립트 출력
 

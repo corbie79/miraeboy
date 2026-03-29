@@ -28,7 +28,7 @@ _mboy_completion() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="login status user repo member package cargo build version completion"
+    local commands="login status user repo member package cargo build init version completion"
     local user_cmds="list create update delete"
     local repo_cmds="list create get update delete"
     local member_cmds="list add update remove"
@@ -41,6 +41,7 @@ _mboy_completion() {
         member)  COMPREPLY=($(compgen -W "$member_cmds"  -- "$cur")) ; return ;;
         package) COMPREPLY=($(compgen -W "$package_cmds" -- "$cur")) ; return ;;
         build)   COMPREPLY=($(compgen -W "$build_cmds"   -- "$cur")) ; return ;;
+        init)    COMPREPLY=($(compgen -W "conan cargo team" -- "$cur")) ; return ;;
         completion) COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur")) ; return ;;
     esac
 
@@ -70,6 +71,7 @@ _mboy() {
         'member:멤버 관리'
         'package:패키지 검색'
         'build:빌드 관리'
+        'init:프로젝트 템플릿 생성'
         'completion:쉘 자동완성 스크립트 출력'
         'version:버전 출력'
     )
@@ -96,6 +98,7 @@ _mboy() {
                 package) local -a s=(search)                        ; _describe 'subcommand' s ;;
                 cargo)   local -a s=(search yank unyank)           ; _describe 'subcommand' s ;;
                 build)   local -a s=(list trigger get)              ; _describe 'subcommand' s ;;
+                init)    local -a s=(conan cargo team)              ; _describe 'template' s ;;
                 completion) local -a s=(bash zsh fish)              ; _describe 'shell' s ;;
             esac
         ;;
@@ -109,7 +112,7 @@ const fishCompletion = `# mboy fish completion
 # 설치: mboy completion fish | source
 # 영구 설치: mboy completion fish > ~/.config/fish/completions/mboy.fish
 
-set -l commands login status user repo member package build completion version
+set -l commands login status user repo member package build init completion version
 
 complete -c mboy -f
 complete -c mboy -n "__fish_use_subcommand" -a login      -d '서버 인증'
@@ -119,6 +122,7 @@ complete -c mboy -n "__fish_use_subcommand" -a repo       -d '리포지토리 �
 complete -c mboy -n "__fish_use_subcommand" -a member     -d '멤버 관리'
 complete -c mboy -n "__fish_use_subcommand" -a package    -d '패키지 검색'
 complete -c mboy -n "__fish_use_subcommand" -a build      -d '빌드 관리'
+complete -c mboy -n "__fish_use_subcommand" -a init       -d '프로젝트 템플릿 생성'
 complete -c mboy -n "__fish_use_subcommand" -a completion -d '자동완성 스크립트'
 complete -c mboy -n "__fish_use_subcommand" -a version    -d '버전 출력'
 
@@ -132,6 +136,8 @@ complete -c mboy -n "__fish_seen_subcommand_from member" -a "list add update rem
 complete -c mboy -n "__fish_seen_subcommand_from package" -a "search" -f
 # build subcommands
 complete -c mboy -n "__fish_seen_subcommand_from build" -a "list trigger get" -f
+# init templates
+complete -c mboy -n "__fish_seen_subcommand_from init" -a "conan cargo team" -f
 # completion shells
 complete -c mboy -n "__fish_seen_subcommand_from completion" -a "bash zsh fish" -f
 
