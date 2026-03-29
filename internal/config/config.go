@@ -77,9 +77,17 @@ type ServerConfig struct {
 	S3                S3Config `yaml:"s3"`
 }
 
+// BuildConfig holds the integrated build server settings.
+// Set agent_key to enable the build system. Leave empty to disable.
+type BuildConfig struct {
+	AgentKey     string `yaml:"agent_key"`     // shared key for miraeboy-agent authentication
+	ArtifactsDir string `yaml:"artifacts_dir"` // where to store built binaries (default: ./artifacts)
+}
+
 type Config struct {
 	Server       ServerConfig `yaml:"server"`
 	Auth         AuthConfig   `yaml:"auth"`
+	Build        BuildConfig  `yaml:"build"`
 	Repositories []RepoDef    `yaml:"repositories"`
 }
 

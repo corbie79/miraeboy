@@ -1,7 +1,9 @@
 package api
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -20,6 +22,7 @@ type Server struct {
 	webFS    fs.FS        // compiled web UI assets (may be nil)
 	nodeRole string       // "primary" or "replica"
 	oidc     *oidcProvider
+	builds   *BuildStore  // nil when build system is disabled
 }
 
 func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server {
@@ -34,6 +37,10 @@ func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server 
 		webFS:    webFS,
 		nodeRole: role,
 		oidc:     newOIDCProvider(),
+	}
+	if cfg.Build.AgentKey != "" {
+		s.builds = newBuildStore(cfg.Build.ArtifactsDir)
+		log.Printf("Build system enabled (artifacts: %s)", s.builds.artifactsDir)
 	}
 	s.seedRepos()
 	s.registerRoutes()
@@ -107,6 +114,16 @@ func (s *Server) registerRoutes() {
 	// ── Global health check ───────────────────────────────────────────────────
 	m.HandleFunc("GET /ping", s.handlePing)
 
+	// ── Build system (disabled when build.agent_key is empty) ────────────────
+	if s.builds != nil {
+		m.HandleFunc("POST /api/builds",                        s.adminOnly(s.handleTriggerBuild))
+		m.HandleFunc("GET /api/builds",                         s.adminOnly(s.handleListBuilds))
+		m.HandleFunc("GET /api/builds/{id}",                    s.adminOnly(s.handleGetBuild))
+		m.HandleFunc("GET /api/builds/{id}/artifacts/{file}",   s.adminOnly(s.handleDownloadArtifact))
+		m.HandleFunc("POST /api/agent/poll",                    s.handleAgentPoll)
+		m.HandleFunc("POST /api/agent/jobs/{id}/done",          s.handleAgentDone)
+	}
+
 	// ── Repository management API ─────────────────────────────────────────────
 	m.HandleFunc("POST /api/repos", s.replicaReadOnly(s.adminOnly(s.handleCreateRepo)))
 	m.HandleFunc("GET /api/repos", s.adminOnly(s.handleListRepos))
@@ -176,6 +193,12 @@ func (s *Server) registerConanRoutes(m *http.ServeMux, base string) {
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+func newID() string {
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%x", b)
+}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

@@ -14,6 +14,12 @@ server:
   #   use_ssl: false
   #   region: ""             # AWS S3는 "ap-northeast-2" 등 지정
 
+# 빌드 시스템 — miraeboy-agent 연동
+# agent_key를 설정하면 활성화됩니다.
+# build:
+#   agent_key: "change-me-agent-key"   # miraeboy-agent 인증 키
+#   artifacts_dir: "./artifacts"       # 빌드 결과물 저장 경로
+
 auth:
   jwt_secret: "change-me-in-production"
 

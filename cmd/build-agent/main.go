@@ -1,9 +1,9 @@
-// build-agent: 빌드 에이전트
-// 각 플랫폼(Windows/Mac/Linux) 머신에서 실행하여 빌드 서버로부터 작업을 받아 네이티브 빌드 후 업로드
+// miraeboy-agent: 빌드 에이전트
+// 각 플랫폼(Windows/Mac/Linux) 머신에서 실행 — miraeboy 서버에서 빌드 작업을 받아 네이티브 빌드 후 업로드
 //
 // 사용법:
-//   ./build-agent --server=http://build-server:8500 --api-key=secret
-//   ./build-agent --server=http://build-server:8500 --api-key=secret --workspace=C:\build
+//   ./miraeboy-agent --server=http://miraeboy-server:9300 --agent-key=secret
+//   ./miraeboy-agent --server=http://miraeboy-server:9300 --agent-key=secret --workspace=C:\build
 //
 // 필요 환경:
 //   - Go 1.22+
@@ -63,7 +63,7 @@ func (a *Agent) poll() (*Job, error) {
 	})
 	req, _ := http.NewRequest(http.MethodPost, a.serverURL+"/api/agent/poll", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", a.apiKey)
+	req.Header.Set("X-Agent-Key", a.apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -201,7 +201,7 @@ func (a *Agent) done(jobID, status, errMsg, artifactPath string) error {
 		&body,
 	)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set("X-API-Key", a.apiKey)
+	req.Header.Set("X-Agent-Key", a.apiKey)
 	// No timeout — artifact upload may be large
 	req.Header.Set("Connection", "keep-alive")
 
@@ -347,8 +347,8 @@ func fileExists(path string) bool {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 func main() {
-	server    := flag.String("server", "http://localhost:8500", "build server URL")
-	apiKey    := flag.String("api-key", "", "API key (required)")
+	server    := flag.String("server", "http://localhost:9300", "miraeboy server URL")
+	apiKey    := flag.String("agent-key", "", "agent key (config.yaml build.agent_key, required)")
 	workspace := flag.String("workspace", "./workspace", "working directory for clones and artifacts")
 	agentID   := flag.String("id", "", "agent ID (default: hostname-os-arch)")
 	interval  := flag.Duration("interval", 5*time.Second, "polling interval")
