@@ -80,7 +80,7 @@ func CmdBuildTrigger(client *Client, p *Printer, args []string) error {
 		return nil
 	}
 	p.Success("빌드 트리거 완료 (ID: %s)", result.ID)
-	fmt.Printf("  빌드 상태: miraeboy-ctl build get %s\n", result.ID)
+	fmt.Printf("  빌드 상태: mboy build get %s\n", result.ID)
 	return nil
 }
 

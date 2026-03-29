@@ -32,7 +32,7 @@ BINARY="miraeboy"   # --agent / --ctl 플래그로 변경 가능
 while [ $# -gt 0 ]; do
     case "$1" in
         --agent)       BINARY="miraeboy-agent"; shift ;;
-        --ctl)         BINARY="miraeboy-ctl";   shift ;;
+        --ctl)         BINARY="mboy";   shift ;;
         --version)     VERSION="$2";            shift 2 ;;
         --install-dir) INSTALL_DIR="$2";        shift 2 ;;
         --base-url)    BASE_URL="$2";           shift 2 ;;
@@ -176,10 +176,10 @@ case "$BINARY" in
         echo "    # config.yaml 편집 후:"
         echo "    miraeboy"
         ;;
-    miraeboy-ctl)
+    mboy)
         echo "  Quick start:"
-        echo "    miraeboy-ctl login --server http://miraeboy.example.com:9300"
-        echo "    miraeboy-ctl repo list"
+        echo "    mboy login --server http://miraeboy.example.com:9300"
+        echo "    mboy repo list"
         ;;
     miraeboy-agent)
         echo "  Quick start:"

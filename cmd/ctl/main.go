@@ -1,8 +1,8 @@
-// miraeboy-ctl — command-line management tool for miraeboy
+// mboy — command-line management tool for miraeboy
 //
 // Usage:
 //
-//	miraeboy-ctl [--server URL] [--token TOKEN] <command> [args...]
+//	mboy [--server URL] [--token TOKEN] <command> [args...]
 //
 // Commands:
 //
@@ -36,7 +36,7 @@ var version = "dev"
 
 func main() {
 	// ── 전역 플래그 ──────────────────────────────────────────────────────────
-	fs := flag.NewFlagSet("miraeboy-ctl", flag.ContinueOnError)
+	fs := flag.NewFlagSet("mboy", flag.ContinueOnError)
 	serverURL := fs.String("server", "", "miraeboy 서버 URL (기본값: 저장된 설정 또는 http://localhost:9300)")
 	token := fs.String("token", "", "Bearer 토큰 (기본값: 저장된 토큰)")
 	outputJSON := fs.Bool("json", false, "JSON 형식으로 출력")
@@ -178,10 +178,10 @@ func die(format string, args ...any) {
 }
 
 func usage() {
-	fmt.Print(`miraeboy-ctl — miraeboy 서버 관리 CLI
+	fmt.Print(`mboy — miraeboy 서버 관리 CLI
 
 사용법:
-  miraeboy-ctl [--server URL] [--token TOKEN] [--json] <command> [subcommand] [args]
+  mboy [--server URL] [--token TOKEN] [--json] <command> [subcommand] [args]
 
 전역 옵션:
   --server URL   서버 주소 (기본값: http://localhost:9300)
@@ -211,11 +211,11 @@ func usage() {
   build get <id>                   빌드 상태 조회
 
 예시:
-  miraeboy-ctl login --user admin --password secret
-  miraeboy-ctl repo list
-  miraeboy-ctl repo create --name mylib --owner admin
-  miraeboy-ctl member add mylib alice write
-  miraeboy-ctl package search mylib "boost*"
+  mboy login --user admin --password secret
+  mboy repo list
+  mboy repo create --name mylib --owner admin
+  mboy member add mylib alice write
+  mboy package search mylib "boost*"
 `)
 }
 

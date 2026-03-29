@@ -14,7 +14,7 @@ LDFLAGS   = -s -w -X main.Version=$(VERSION)
 OUTDIR    = dist
 BINARY    = miraeboy
 AGENT     = miraeboy-agent
-CTL       = miraeboy-ctl
+CTL       = mboy
 
 .PHONY: all web linux darwin windows agent ctl release clean help
 
@@ -55,15 +55,15 @@ windows: web $(OUTDIR)
 	@GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(BINARY)-windows-amd64.exe .
 
 ctl: $(OUTDIR)
-	@echo "==> miraeboy-ctl linux/amd64"
+	@echo "==> mboy linux/amd64"
 	@GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-linux-amd64   ./cmd/ctl
-	@echo "==> miraeboy-ctl linux/arm64"
+	@echo "==> mboy linux/arm64"
 	@GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-linux-arm64   ./cmd/ctl
-	@echo "==> miraeboy-ctl darwin/amd64"
+	@echo "==> mboy darwin/amd64"
 	@GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-darwin-amd64  ./cmd/ctl
-	@echo "==> miraeboy-ctl darwin/arm64"
+	@echo "==> mboy darwin/arm64"
 	@GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-darwin-arm64  ./cmd/ctl
-	@echo "==> miraeboy-ctl windows/amd64"
+	@echo "==> mboy windows/amd64"
 	@GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(OUTDIR)/$(CTL)-windows-amd64.exe ./cmd/ctl
 
 agent: $(OUTDIR)
