@@ -1,18 +1,10 @@
 #!/usr/bin/env sh
-# miraeboy / miraeboy-agent universal installer
+# mboy (miraeboy CLI) installer
 #
 # 사용법:
-#   # 서버 설치
-#   curl -fsSL https://raw.githubusercontent.com/corbie79/miraeboy/main/install.sh | sh
-#
-#   # 에이전트 설치
-#   curl -fsSL https://raw.githubusercontent.com/corbie79/miraeboy/main/install.sh | sh -s -- --agent
-#
-#   # 버전 지정
-#   curl -fsSL .../install.sh | sh -s -- --version v1.2.0
-#
-#   # 설치 경로 지정
-#   curl -fsSL .../install.sh | sh -s -- --install-dir ~/.local/bin
+#   curl -fsSL https://raw.githubusercontent.com/corbie79/miraeboy/main/install-cli.sh | sh
+#   curl -fsSL .../install-cli.sh | sh -s -- --version v1.2.0
+#   curl -fsSL .../install-cli.sh | sh -s -- --install-dir ~/.local/bin
 #
 # 환경변수:
 #   MIRAEBOY_VERSION      설치할 버전 (기본값: latest)
@@ -25,18 +17,17 @@ REPO="corbie79/miraeboy"
 BASE_URL="${MIRAEBOY_BASE_URL:-https://github.com/${REPO}}"
 VERSION="${MIRAEBOY_VERSION:-}"
 INSTALL_DIR="${MIRAEBOY_INSTALL_DIR:-}"
-BINARY="miraeboy"   # --agent 플래그로 miraeboy-agent로 변경 가능
+BINARY="mboy"
 
 # ─── 인자 파싱 ────────────────────────────────────────────────────────────────
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --agent)       BINARY="miraeboy-agent"; shift ;;
-        --version)     VERSION="$2";            shift 2 ;;
-        --install-dir) INSTALL_DIR="$2";        shift 2 ;;
-        --base-url)    BASE_URL="$2";           shift 2 ;;
+        --version)     VERSION="$2";     shift 2 ;;
+        --install-dir) INSTALL_DIR="$2"; shift 2 ;;
+        --base-url)    BASE_URL="$2";    shift 2 ;;
         -h|--help)
-            echo "Usage: install.sh [--agent] [--version v1.x.x] [--install-dir DIR]"
+            echo "Usage: install-cli.sh [--version v1.x.x] [--install-dir DIR]"
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -107,7 +98,7 @@ fi
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "==> Installing ${BINARY} ${VERSION} (${OS}/${ARCH})"
+echo "==> Installing mboy ${VERSION} (${OS}/${ARCH})"
 echo "==> Downloading ${ARCHIVE}..."
 curl -fsSL --progress-bar -o "${TMP_DIR}/${ARCHIVE}" "$DOWNLOAD_URL"
 
@@ -154,10 +145,9 @@ fi
 # ─── 완료 ─────────────────────────────────────────────────────────────────────
 
 echo ""
-printf "  \033[32m✓\033[0m %s %s installed → %s\n" "$BINARY" "$VERSION" "$DEST"
+printf "  \033[32m✓\033[0m mboy %s installed → %s\n" "$VERSION" "$DEST"
 echo ""
 
-# PATH에 없으면 경고
 case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
     *)
@@ -168,15 +158,6 @@ case ":${PATH}:" in
         ;;
 esac
 
-case "$BINARY" in
-    miraeboy)
-        echo "  Quick start:"
-        echo "    miraeboy --help"
-        echo "    # config.yaml 편집 후:"
-        echo "    miraeboy"
-        ;;
-    miraeboy-agent)
-        echo "  Quick start:"
-        echo "    miraeboy-agent --server http://miraeboy.example.com:9300 --agent-key YOUR_KEY"
-        ;;
-esac
+echo "  Quick start:"
+echo "    mboy login --server http://miraeboy.example.com:9300"
+echo "    mboy repo list"
