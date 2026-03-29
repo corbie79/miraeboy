@@ -33,6 +33,8 @@ theme:
 plugins:
   - search:
       lang: ko
+  - minify:
+      minify_html: true
 
 markdown_extensions:
   - admonition
