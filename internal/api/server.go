@@ -166,6 +166,10 @@ func (s *Server) registerRoutes() {
 	m.HandleFunc("PUT /api/repos/{repository}/members/{username}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleUpdateMember)))
 	m.HandleFunc("DELETE /api/repos/{repository}/members/{username}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleRemoveMember)))
 
+	// ── Cargo sparse registry ─────────────────────────────────────────────────
+	// Cargo client config: sparse+http://server:9300/cargo/{repository}/
+	s.registerCargoRoutes(m)
+
 	// ── Conan v2 endpoints ────────────────────────────────────────────────────
 	// Conan client remote URL: http://server:9300/api/conan/{repository}
 	s.registerConanRoutes(m, "/api/conan")

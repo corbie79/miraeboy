@@ -152,6 +152,20 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "cargo":
+		switch sub {
+		case "search":
+			runErr = cli.CmdCargoSearch(client, printer, rest)
+		case "yank":
+			runErr = cli.CmdCargoYank(client, printer, rest)
+		case "unyank":
+			runErr = cli.CmdCargoUnyank(client, printer, rest)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown cargo subcommand: %q\n", sub)
+			fmt.Fprintln(os.Stderr, "cargo 서브커맨드: search | yank | unyank")
+			os.Exit(1)
+		}
+
 	case "build":
 		switch sub {
 		case "list":
@@ -236,7 +250,11 @@ func usage() {
   member update <repo> <user> <perm>  멤버 권한 변경
   member remove <repo> <user>      멤버 제거
 
-  package search <repo> [query]    패키지 검색
+  package search <repo> [query]    Conan 패키지 검색
+
+  cargo search <repo> [query]     Rust 크레이트 검색
+  cargo yank   <repo> <name> <v>  크레이트 버전 yank
+  cargo unyank <repo> <name> <v>  크레이트 버전 unyank
 
   build list                       빌드 목록
   build trigger --repo NAME        빌드 트리거

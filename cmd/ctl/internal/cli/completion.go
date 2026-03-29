@@ -28,7 +28,7 @@ _mboy_completion() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="login status user repo member package build version completion"
+    local commands="login status user repo member package cargo build version completion"
     local user_cmds="list create update delete"
     local repo_cmds="list create get update delete"
     local member_cmds="list add update remove"
@@ -94,6 +94,7 @@ _mboy() {
                 repo)    local -a s=(list create get update delete) ; _describe 'subcommand' s ;;
                 member)  local -a s=(list add update remove)        ; _describe 'subcommand' s ;;
                 package) local -a s=(search)                        ; _describe 'subcommand' s ;;
+                cargo)   local -a s=(search yank unyank)           ; _describe 'subcommand' s ;;
                 build)   local -a s=(list trigger get)              ; _describe 'subcommand' s ;;
                 completion) local -a s=(bash zsh fish)              ; _describe 'shell' s ;;
             esac
