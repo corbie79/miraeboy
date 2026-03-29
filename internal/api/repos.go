@@ -20,20 +20,28 @@ var reservedRepoNames = map[string]bool{
 
 // ─── request / response types ─────────────────────────────────────────────────
 
+type gitConfigReq struct {
+	URL    string `json:"url"`    // HTTPS clone URL; empty string disables git sync
+	Branch string `json:"branch"` // default: "main"
+	Token  string `json:"token"`  // PAT or equivalent (write-only; omitted from responses)
+}
+
 type repoCreateReq struct {
-	Name              string   `json:"name"`
-	Description       string   `json:"description"`
-	Owner             string   `json:"owner"`
-	AllowedNamespaces []string `json:"allowed_namespaces"`
-	AllowedChannels   []string `json:"allowed_channels"`
-	AnonymousAccess   string   `json:"anonymous_access"`
+	Name              string         `json:"name"`
+	Description       string         `json:"description"`
+	Owner             string         `json:"owner"`
+	AllowedNamespaces []string       `json:"allowed_namespaces"`
+	AllowedChannels   []string       `json:"allowed_channels"`
+	AnonymousAccess   string         `json:"anonymous_access"`
+	Git               *gitConfigReq  `json:"git,omitempty"`
 }
 
 type repoUpdateReq struct {
-	Description       *string  `json:"description"`
-	AllowedNamespaces []string `json:"allowed_namespaces"`
-	AllowedChannels   []string `json:"allowed_channels"`
-	AnonymousAccess   *string  `json:"anonymous_access"`
+	Description       *string        `json:"description"`
+	AllowedNamespaces []string       `json:"allowed_namespaces"`
+	AllowedChannels   []string       `json:"allowed_channels"`
+	AnonymousAccess   *string        `json:"anonymous_access"`
+	Git               *gitConfigReq  `json:"git,omitempty"` // set to {} with empty url to disable
 }
 
 type repoResp struct {
@@ -45,6 +53,8 @@ type repoResp struct {
 	AnonymousAccess   string   `json:"anonymous_access"`
 	Source            string   `json:"source"`
 	MemberCount       int      `json:"member_count"`
+	GitURL            string   `json:"git_url,omitempty"`    // configured git remote (token omitted)
+	GitBranch         string   `json:"git_branch,omitempty"` // configured git branch
 }
 
 type memberReq struct {
@@ -61,7 +71,7 @@ func toRepoResp(r storage.RepoRecord) repoResp {
 	if ch == nil {
 		ch = []string{}
 	}
-	return repoResp{
+	resp := repoResp{
 		Name:              r.Name,
 		Description:       r.Description,
 		Owner:             r.Owner,
@@ -71,6 +81,11 @@ func toRepoResp(r storage.RepoRecord) repoResp {
 		Source:            r.Source,
 		MemberCount:       len(r.Members),
 	}
+	if r.Git != nil && r.Git.URL != "" {
+		resp.GitURL = r.Git.URL
+		resp.GitBranch = r.Git.Branch
+	}
+	return resp
 }
 
 // ─── repository CRUD ──────────────────────────────────────────────────────────
@@ -111,6 +126,7 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		AnonymousAccess:   req.AnonymousAccess,
 		Source:            "api",
 		Members:           []storage.RepoMember{},
+		Git:               gitConfigFromReq(req.Git),
 	}
 	if err := s.store.SaveRepo(rec); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
@@ -180,6 +196,9 @@ func (s *Server) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
 	if req.AnonymousAccess != nil {
 		repo.AnonymousAccess = *req.AnonymousAccess
 	}
+	if req.Git != nil {
+		repo.Git = gitConfigFromReq(req.Git)
+	}
 
 	if err := s.store.SaveRepo(*repo); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
@@ -215,6 +234,23 @@ func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 
 var validPermissions = map[string]bool{
 	"read": true, "write": true, "delete": true, "owner": true,
+}
+
+// gitConfigFromReq converts a gitConfigReq to a storage.GitSyncConfig.
+// Returns nil when req is nil or URL is empty (disables git sync).
+func gitConfigFromReq(req *gitConfigReq) *storage.GitSyncConfig {
+	if req == nil || req.URL == "" {
+		return nil
+	}
+	branch := req.Branch
+	if branch == "" {
+		branch = "main"
+	}
+	return &storage.GitSyncConfig{
+		URL:    req.URL,
+		Branch: branch,
+		Token:  req.Token,
+	}
 }
 
 // POST /api/repos/{repository}/members  (owner or admin)
