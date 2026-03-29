@@ -93,6 +93,22 @@ func main() {
 	case "status":
 		runErr = cli.CmdStatus(client, printer)
 
+	case "user":
+		switch sub {
+		case "list":
+			runErr = cli.CmdUserList(client, printer, rest)
+		case "create":
+			runErr = cli.CmdUserCreate(client, printer, rest)
+		case "update":
+			runErr = cli.CmdUserUpdate(client, printer, rest)
+		case "delete":
+			runErr = cli.CmdUserDelete(client, printer, rest)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown user subcommand: %q\n", sub)
+			fmt.Fprintln(os.Stderr, "user 서브커맨드: list | create | update | delete")
+			os.Exit(1)
+		}
+
 	case "repo":
 		switch sub {
 		case "list":
@@ -149,6 +165,17 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "completion":
+		shell := sub
+		if shell == "" && len(rest) > 0 {
+			shell = rest[0]
+		}
+		if shell == "" {
+			fmt.Fprintln(os.Stderr, "사용법: mboy completion <bash|zsh|fish>")
+			os.Exit(1)
+		}
+		runErr = cli.CmdCompletion(shell)
+
 	case "version":
 		fmt.Println(version)
 
@@ -193,6 +220,11 @@ func usage() {
   login                            서버에 로그인 (토큰 저장)
   status                           서버 상태 확인
 
+  user list                        유저 목록
+  user create --username U ...     유저 생성
+  user update <username> [옵션]    비밀번호/권한 변경
+  user delete <username>           유저 삭제
+
   repo list                        리포지토리 목록
   repo create --name NAME ...      리포지토리 생성
   repo get    <name>               리포지토리 상세
@@ -209,6 +241,8 @@ func usage() {
   build list                       빌드 목록
   build trigger --repo NAME        빌드 트리거
   build get <id>                   빌드 상태 조회
+
+  completion <bash|zsh|fish>       쉘 자동완성 스크립트 출력
 
 예시:
   mboy login --user admin --password secret

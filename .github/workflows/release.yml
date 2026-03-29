@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node (web UI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Build web UI
+        run: cd web && npm ci && npm run build
+
+      - name: Build all binaries
+        run: make linux darwin windows agent ctl VERSION=${{ steps.version.outputs.VERSION }}
+        env:
+          CGO_ENABLED: '0'
+
+      - name: Create archives & checksums
+        run: |
+          cd dist
+          for f in miraeboy-linux-amd64 miraeboy-linux-arm64 \
+                   miraeboy-darwin-amd64 miraeboy-darwin-arm64 \
+                   miraeboy-agent-linux-amd64 miraeboy-agent-linux-arm64 \
+                   miraeboy-agent-darwin-amd64 miraeboy-agent-darwin-arm64 \
+                   mboy-linux-amd64 mboy-linux-arm64 \
+                   mboy-darwin-amd64 mboy-darwin-arm64; do
+            tar czf ${f}-${{ steps.version.outputs.VERSION }}.tar.gz ${f}
+          done
+          for f in miraeboy-windows-amd64 miraeboy-agent-windows-amd64 mboy-windows-amd64; do
+            zip -q ${f}-${{ steps.version.outputs.VERSION }}.zip ${f}.exe
+          done
+          sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          cat <<EOF > release_notes.md
+          ## $VERSION
+
+          ### 설치
+
+          **서버**
+          \`\`\`bash
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/${VERSION}/install.sh | sh
+          \`\`\`
+
+          **에이전트**
+          \`\`\`bash
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/${VERSION}/install-agent.sh | sh
+          \`\`\`
+
+          **CLI (mboy)**
+          \`\`\`bash
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/${VERSION}/install-cli.sh | sh
+          \`\`\`
+
+          **Windows**
+          \`\`\`powershell
+          irm https://github.com/${{ github.repository }}/releases/download/${VERSION}/install.ps1 | iex
+          \`\`\`
+
+          ### 바이너리
+
+          | 파일 | 설명 |
+          |------|------|
+          | \`miraeboy-*\` | 패키지 서버 |
+          | \`miraeboy-agent-*\` | 빌드 에이전트 |
+          | \`mboy-*\` | CLI 관리 도구 |
+          EOF
+
+      - name: Upload install scripts to release
+        run: cp install.sh install-agent.sh install-cli.sh install.ps1 install-agent.ps1 install-cli.ps1 dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+            dist/install.sh
+            dist/install-agent.sh
+            dist/install-cli.sh
+            dist/install.ps1
+            dist/install-agent.ps1
+            dist/install-cli.ps1

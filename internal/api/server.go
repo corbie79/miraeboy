@@ -48,9 +48,25 @@ func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server 
 		s.builds = newBuildStore(cfg.Build.ArtifactsDir)
 		log.Printf("Build system enabled (artifacts: %s)", s.builds.artifactsDir)
 	}
+	s.seedUsers()
 	s.seedRepos()
 	s.registerRoutes()
 	return s
+}
+
+// seedUsers creates user accounts from config.yaml if they don't already exist.
+func (s *Server) seedUsers() {
+	for _, u := range s.cfg.Auth.Users {
+		if err := s.store.SeedUser(storage.UserRecord{
+			Username:     u.Username,
+			PasswordHash: storage.HashPassword(u.Password),
+			Admin:        u.Admin,
+			CreatedAt:    time.Now().UTC(),
+			Source:       "config",
+		}); err != nil {
+			log.Printf("warn: failed to seed user %q: %v", u.Username, err)
+		}
+	}
 }
 
 // seedRepos creates repositories from config.yaml if they don't already exist on disk.
@@ -129,6 +145,13 @@ func (s *Server) registerRoutes() {
 		m.HandleFunc("POST /api/agent/poll",                    s.handleAgentPoll)
 		m.HandleFunc("POST /api/agent/jobs/{id}/done",          s.handleAgentDone)
 	}
+
+	// ── User management API ───────────────────────────────────────────────────
+	m.HandleFunc("GET /api/users", s.adminOnly(s.handleListUsers))
+	m.HandleFunc("POST /api/users", s.replicaReadOnly(s.adminOnly(s.handleCreateUser)))
+	m.HandleFunc("GET /api/users/{username}", s.adminOnly(s.handleGetUser))
+	m.HandleFunc("PATCH /api/users/{username}", s.replicaReadOnly(s.adminOnly(s.handleUpdateUser)))
+	m.HandleFunc("DELETE /api/users/{username}", s.replicaReadOnly(s.adminOnly(s.handleDeleteUser)))
 
 	// ── Repository management API ─────────────────────────────────────────────
 	m.HandleFunc("POST /api/repos", s.replicaReadOnly(s.adminOnly(s.handleCreateRepo)))

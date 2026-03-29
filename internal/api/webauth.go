@@ -4,10 +4,10 @@ import (
 	"net/http"
 
 	"github.com/corbie79/miraeboy/internal/auth"
+	"github.com/corbie79/miraeboy/internal/storage"
 )
 
 // POST /api/auth/login
-// Web UI용 독립 로그인 엔드포인트. JSON body로 credentials를 받아 JWT를 반환.
 func (s *Server) handleWebLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
@@ -18,10 +18,19 @@ func (s *Server) handleWebLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := s.cfg.FindUser(req.Username, req.Password)
-	if user == nil {
-		jsonError(w, http.StatusUnauthorized, "invalid credentials")
+	user, err := s.store.FindUser(req.Username, storage.HashPassword(req.Password))
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "auth error")
 		return
+	}
+	// fallback: config.yaml users not yet seeded
+	if user == nil {
+		cfgUser := s.cfg.FindUser(req.Username, req.Password)
+		if cfgUser == nil {
+			jsonError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		user = &storage.UserRecord{Username: cfgUser.Username, Admin: cfgUser.Admin}
 	}
 
 	groups := make(map[string]auth.Permission)

@@ -203,7 +203,97 @@ func (s *Storage) GetUserRepoPermissions(username string) (map[string]string, er
 	return result, nil
 }
 
-// ─── recipe revisions ─────────────────────────────────────────────────────────
+// ─── user registry ────────────────────────────────────────────────────────────
+
+// UserRecord is a server account stored in _users/{username}.json.
+type UserRecord struct {
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"password_hash"` // sha256 hex of password
+	Admin        bool      `json:"admin"`
+	CreatedAt    time.Time `json:"created_at"`
+	Source       string    `json:"source"` // "config" or "api"
+}
+
+func userMetaKey(username string) string { return "_users/" + username + ".json" }
+func usersPrefix() string                { return "_users/" }
+
+func (s *Storage) GetUser(username string) (*UserRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data, err := s.b.Get(userMetaKey(username))
+	if err != nil {
+		return nil, nil
+	}
+	var u UserRecord
+	if err := json.Unmarshal(data, &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (s *Storage) ListUsers() ([]UserRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	keys, err := s.b.List(usersPrefix())
+	if err != nil {
+		return []UserRecord{}, nil
+	}
+	var users []UserRecord
+	for _, key := range keys {
+		if !strings.HasSuffix(key, ".json") {
+			continue
+		}
+		data, err := s.b.Get(key)
+		if err != nil {
+			continue
+		}
+		var u UserRecord
+		if err := json.Unmarshal(data, &u); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (s *Storage) SaveUser(u UserRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return putJSON(s.b, userMetaKey(u.Username), u)
+}
+
+func (s *Storage) SeedUser(u UserRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.b.Exists(userMetaKey(u.Username)) {
+		return nil
+	}
+	return putJSON(s.b, userMetaKey(u.Username), u)
+}
+
+func (s *Storage) DeleteUser(username string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Delete(userMetaKey(username))
+}
+
+func (s *Storage) UserExists(username string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.b.Exists(userMetaKey(username))
+}
+
+// FindUser returns the user record if username and passwordHash match.
+func (s *Storage) FindUser(username, passwordHash string) (*UserRecord, error) {
+	u, err := s.GetUser(username)
+	if err != nil || u == nil {
+		return nil, err
+	}
+	if u.PasswordHash != passwordHash {
+		return nil, nil
+	}
+	return u, nil
+}
 
 func (s *Storage) GetRecipeRevisions(repo, name, version, ns, ch string) ([]Revision, error) {
 	s.mu.RLock()
