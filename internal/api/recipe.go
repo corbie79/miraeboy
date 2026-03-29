@@ -1,8 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"path/filepath"
+
+	"github.com/corbie79/miraeboy/internal/gitops"
 )
 
 // GET /api/conan/{repository}/v2/conans/search?q=<query>
@@ -95,7 +101,14 @@ func (s *Server) handleUploadRecipeFile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.store.PutRecipeFile(repo, name, version, namespace, channel, rrev, filename, r.Body); err != nil {
+	// Buffer the body so we can both store it and pass it to git sync.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	if err := s.store.PutRecipeFile(repo, name, version, namespace, channel, rrev, filename, bytes.NewReader(body)); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -104,6 +117,9 @@ func (s *Server) handleUploadRecipeFile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+
+	// Async git sync — fire and forget; errors are logged but don't affect the response.
+	go s.syncRecipeFileToGit(repo, name, version, namespace, channel, rrev, filename, body)
 }
 
 // DELETE /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions/{rrev}
@@ -150,4 +166,29 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// syncRecipeFileToGit pushes a single uploaded recipe file to the repository's
+// configured git remote (if any). Run as a goroutine; errors are only logged.
+func (s *Server) syncRecipeFileToGit(repoName, name, version, ns, ch, rrev, filename string, content []byte) {
+	rec, err := s.store.GetRepo(repoName)
+	if err != nil || rec == nil || rec.Git == nil || rec.Git.URL == "" {
+		return // git sync not configured for this repo
+	}
+
+	cloneDir := filepath.Join(s.gitWorkspace, repoName)
+	syncer := gitops.New(cloneDir, gitops.Config{
+		URL:    rec.Git.URL,
+		Branch: rec.Git.Branch,
+		Token:  rec.Git.Token,
+	})
+
+	sha, err := syncer.SyncFile(name, version, ns, ch, rrev, filename, content)
+	if err != nil {
+		log.Printf("[gitops] %s/%s@%s/%s rrev=%s file=%s: %v", name, version, ns, ch, rrev, filename, err)
+		return
+	}
+	if sha != "" {
+		log.Printf("[gitops] %s/%s@%s/%s rrev=%s file=%s synced → %s", name, version, ns, ch, rrev, filename, sha)
+	}
 }

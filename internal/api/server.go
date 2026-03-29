@@ -16,13 +16,14 @@ import (
 )
 
 type Server struct {
-	cfg      *config.Config
-	store    *storage.Storage
-	mux      *http.ServeMux
-	webFS    fs.FS        // compiled web UI assets (may be nil)
-	nodeRole string       // "primary" or "replica"
-	oidc     *oidcProvider
-	builds   *BuildStore  // nil when build system is disabled
+	cfg          *config.Config
+	store        *storage.Storage
+	mux          *http.ServeMux
+	webFS        fs.FS        // compiled web UI assets (may be nil)
+	nodeRole     string       // "primary" or "replica"
+	oidc         *oidcProvider
+	builds       *BuildStore  // nil when build system is disabled
+	gitWorkspace string       // base dir for per-repo git clones
 }
 
 func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server {
@@ -30,13 +31,18 @@ func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server 
 	if role == "" {
 		role = "primary"
 	}
+	gitWS := cfg.Server.GitWorkspace
+	if gitWS == "" {
+		gitWS = "./git-workspace"
+	}
 	s := &Server{
-		cfg:      cfg,
-		store:    store,
-		mux:      http.NewServeMux(),
-		webFS:    webFS,
-		nodeRole: role,
-		oidc:     newOIDCProvider(),
+		cfg:          cfg,
+		store:        store,
+		mux:          http.NewServeMux(),
+		webFS:        webFS,
+		nodeRole:     role,
+		oidc:         newOIDCProvider(),
+		gitWorkspace: gitWS,
 	}
 	if cfg.Build.AgentKey != "" {
 		s.builds = newBuildStore(cfg.Build.ArtifactsDir)

@@ -22,18 +22,27 @@ type RepoMember struct {
 	Permission string `json:"permission"` // "read", "write", "delete", "owner"
 }
 
+// GitSyncConfig holds the git sync settings for a single repository.
+// Leave URL empty to disable git sync for this repository.
+type GitSyncConfig struct {
+	URL    string `json:"url"`    // HTTPS clone URL of the target git repo
+	Branch string `json:"branch"` // target branch (default: "main")
+	Token  string `json:"token"`  // HTTPS auth token (PAT, Gitea key, …)
+}
+
 // RepoRecord is the full definition of a Conan repository.
 // Stored as _repos/{name}.json in the backend.
 type RepoRecord struct {
-	Name              string       `json:"name"`
-	Description       string       `json:"description"`
-	Owner             string       `json:"owner"`
-	AllowedNamespaces []string     `json:"allowed_namespaces"`
-	AllowedChannels   []string     `json:"allowed_channels"`
-	AnonymousAccess   string       `json:"anonymous_access"`
-	Source            string       `json:"source"`
-	CreatedAt         time.Time    `json:"created_at"`
-	Members           []RepoMember `json:"members"`
+	Name              string        `json:"name"`
+	Description       string        `json:"description"`
+	Owner             string        `json:"owner"`
+	AllowedNamespaces []string      `json:"allowed_namespaces"`
+	AllowedChannels   []string      `json:"allowed_channels"`
+	AnonymousAccess   string        `json:"anonymous_access"`
+	Source            string        `json:"source"`
+	CreatedAt         time.Time     `json:"created_at"`
+	Members           []RepoMember  `json:"members"`
+	Git               *GitSyncConfig `json:"git,omitempty"` // optional git sync config
 }
 
 // Storage is the primary entry point for all package and repository operations.

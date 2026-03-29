@@ -3,6 +3,7 @@ server:
   storage_path: "./data"   # 로컬 파일시스템 경로 (S3 사용 시 무시됨)
   node_role: "primary"     # "primary" (기본값) 또는 "replica" (읽기 전용)
   artifactory_compat: false  # true 시 /artifactory/api/conan/... URL도 동작 (JFrog 마이그레이션용)
+  git_workspace: "./git-workspace"  # 리포지토리별 git 클론 로컬 경로 (git 연동 시 필요)
 
   # S3 호환 스토리지 (MinIO, AWS S3, NCP Object Storage 등)
   # endpoint를 비워두면 로컬 파일시스템 backend를 사용합니다.
@@ -75,6 +76,11 @@ repositories:
         permission: "owner"
       - username: "ci"
         permission: "write"
+    # git 연동 설정 — 레시피 파일 업로드 시 자동으로 git push
+    # git:
+    #   url: "https://github.com/corp/conan-recipes.git"
+    #   branch: "main"             # 기본값: main
+    #   token: "ghp_xxxx"          # GitHub PAT / GitLab CI token / Gitea API key
 
   - name: "thirdparty"
     description: "서드파티 읽기 전용 미러"

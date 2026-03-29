@@ -75,6 +75,7 @@ type ServerConfig struct {
 	NodeRole          string   `yaml:"node_role"`          // "primary" (default) or "replica"
 	ArtifactoryCompat bool     `yaml:"artifactory_compat"` // also register /artifactory/api/conan/... routes
 	S3                S3Config `yaml:"s3"`
+	GitWorkspace      string   `yaml:"git_workspace"` // base dir for per-repo git clones (default: ./git-workspace)
 }
 
 // BuildConfig holds the integrated build server settings.
