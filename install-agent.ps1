@@ -1,9 +1,9 @@
-# miraeboy server Windows installer
+# miraeboy-agent Windows installer
 #
 # 사용법:
-#   irm https://raw.githubusercontent.com/corbie79/miraeboy/main/install.ps1 | iex
-#   iex "& { $(irm .../install.ps1) } -Version v1.2.0"
-#   iex "& { $(irm .../install.ps1) } -InstallDir $env:USERPROFILE\.local\bin"
+#   irm https://raw.githubusercontent.com/corbie79/miraeboy/main/install-agent.ps1 | iex
+#   iex "& { $(irm .../install-agent.ps1) } -Version v1.2.0"
+#   iex "& { $(irm .../install-agent.ps1) } -InstallDir $env:USERPROFILE\.local\bin"
 #
 # 환경변수:
 #   $env:MIRAEBOY_VERSION      설치할 버전 (기본값: latest)
@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $Repo   = "corbie79/miraeboy"
-$Binary = "miraeboy"
+$Binary = "miraeboy-agent"
 if (-not $BaseUrl) { $BaseUrl = "https://github.com/$Repo" }
 
 $Arch = switch ($env:PROCESSOR_ARCHITECTURE) {
@@ -48,11 +48,11 @@ $ChecksumUrl = "$BaseUrl/releases/download/$Version/checksums.txt"
 
 if (-not $InstallDir) { $InstallDir = "$env:ProgramFiles\miraeboy" }
 
-$TmpDir = Join-Path $env:TEMP "miraeboy-install-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
+$TmpDir = Join-Path $env:TEMP "miraeboy-agent-install-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
 New-Item -ItemType Directory -Path $TmpDir | Out-Null
 
 try {
-    Write-Host "==> Installing miraeboy $Version (windows/$Arch)"
+    Write-Host "==> Installing miraeboy-agent $Version (windows/$Arch)"
     Write-Host "==> Downloading $Archive..."
     $ArchivePath = Join-Path $TmpDir $Archive
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $ArchivePath -UseBasicParsing
@@ -74,7 +74,7 @@ try {
     if (-not (Test-Path $ExtractedPath)) { Write-Error "바이너리를 찾을 수 없습니다."; exit 1 }
 
     if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }
-    $Dest = Join-Path $InstallDir "miraeboy.exe"
+    $Dest = Join-Path $InstallDir "miraeboy-agent.exe"
     Write-Host "==> Installing to $Dest..."
     if (Test-Path $Dest) { Remove-Item $Dest -Force }
     Move-Item $ExtractedPath $Dest
@@ -91,12 +91,10 @@ try {
     }
 
     Write-Host ""
-    Write-Host "  OK  miraeboy $Version installed -> $Dest" -ForegroundColor Green
+    Write-Host "  OK  miraeboy-agent $Version installed -> $Dest" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Quick start:"
-    Write-Host "    miraeboy.exe --help"
-    Write-Host "    # config.yaml 편집 후:"
-    Write-Host "    miraeboy.exe"
+    Write-Host "    miraeboy-agent.exe --server http://miraeboy.example.com:9300 --agent-key YOUR_KEY"
 
 } finally {
     Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
