@@ -135,23 +135,36 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toRepoResp(rec))
 }
 
-// GET /api/repos  (admin only)
+// GET /api/repos
+// Admin: returns all repositories.
+// Non-admin: returns only repositories where the user is a member or owner.
 func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
+
 	repos, err := s.store.ListRepos()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp := make([]repoResp, len(repos))
-	for i, repo := range repos {
-		resp[i] = toRepoResp(repo)
+
+	var filtered []repoResp
+	for _, repo := range repos {
+		if claims.Admin || isRepoMember(repo, claims.Username) {
+			filtered = append(filtered, toRepoResp(repo))
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"repositories": resp})
+	if filtered == nil {
+		filtered = []repoResp{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"repositories": filtered})
 }
 
-// GET /api/repos/{repository}  (admin only)
+// GET /api/repos/{repository}
+// Admin: always returns the repo. Non-admin: only if member or owner.
 func (s *Server) handleGetRepo(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	name := r.PathValue("repository")
+
 	repo, err := s.store.GetRepo(name)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
@@ -161,7 +174,24 @@ func (s *Server) handleGetRepo(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "repository not found: "+name)
 		return
 	}
+	if !claims.Admin && !isRepoMember(*repo, claims.Username) {
+		jsonError(w, http.StatusForbidden, "access denied")
+		return
+	}
 	writeJSON(w, http.StatusOK, toRepoResp(*repo))
+}
+
+// isRepoMember returns true if username is the owner or an explicit member.
+func isRepoMember(repo storage.RepoRecord, username string) bool {
+	if repo.Owner == username {
+		return true
+	}
+	for _, m := range repo.Members {
+		if m.Username == username {
+			return true
+		}
+	}
+	return false
 }
 
 // PATCH /api/repos/{repository}  (owner or admin)

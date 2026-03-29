@@ -104,6 +104,18 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// requireAuth validates the Bearer token but does not check permissions.
+// The claims are stored in the request context for handlers.
+func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := s.extractClaims(w, r, true)
+		if !ok {
+			return
+		}
+		next(w, r.WithContext(contextWithClaims(r.Context(), claims)))
+	}
+}
+
 // replicaReadOnly blocks write requests (PUT, POST, DELETE, PATCH) when
 // this node is running in replica mode. Replica nodes are read-only; all
 // writes must go through the primary node.

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/corbie79/miraeboy/internal/auth"
+	"github.com/corbie79/miraeboy/internal/storage"
 )
 
 // GET /api/conan/{repository}/v2/users/authenticate
@@ -18,17 +19,29 @@ func (s *Server) handleAuthenticate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := s.cfg.FindUser(username, password)
-	if user == nil {
-		jsonError(w, http.StatusUnauthorized, "invalid credentials")
+	// Check storage first (API-created users), then fall back to config.yaml.
+	var isAdmin bool
+	storedUser, err := s.store.FindUser(username, storage.HashPassword(password))
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "auth error")
 		return
+	}
+	if storedUser != nil {
+		isAdmin = storedUser.Admin
+	} else {
+		cfgUser := s.cfg.FindUser(username, password)
+		if cfgUser == nil {
+			jsonError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		isAdmin = cfgUser.Admin
 	}
 
 	groups := make(map[string]auth.Permission)
-	if user.Admin {
+	if isAdmin {
 		groups["*"] = auth.PermOwner
 	} else {
-		repoPerms, err := s.store.GetUserRepoPermissions(user.Username)
+		repoPerms, err := s.store.GetUserRepoPermissions(username)
 		if err != nil {
 			jsonError(w, http.StatusInternalServerError, "failed to load repository permissions")
 			return
@@ -38,7 +51,7 @@ func (s *Server) handleAuthenticate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	token, err := auth.IssueToken(s.cfg.Auth.JWTSecret, user.Username, user.Admin, groups)
+	token, err := auth.IssueToken(s.cfg.Auth.JWTSecret, username, isAdmin, groups)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, "token generation failed")
 		return

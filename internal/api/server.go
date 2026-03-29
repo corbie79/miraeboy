@@ -155,8 +155,8 @@ func (s *Server) registerRoutes() {
 
 	// ── Repository management API ─────────────────────────────────────────────
 	m.HandleFunc("POST /api/repos", s.replicaReadOnly(s.adminOnly(s.handleCreateRepo)))
-	m.HandleFunc("GET /api/repos", s.adminOnly(s.handleListRepos))
-	m.HandleFunc("GET /api/repos/{repository}", s.adminOnly(s.handleGetRepo))
+	m.HandleFunc("GET /api/repos", s.requireAuth(s.handleListRepos))
+	m.HandleFunc("GET /api/repos/{repository}", s.requireAuth(s.handleGetRepo))
 	m.HandleFunc("PATCH /api/repos/{repository}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleUpdateRepo)))
 	m.HandleFunc("DELETE /api/repos/{repository}", s.replicaReadOnly(s.adminOnly(s.handleDeleteRepo)))
 
