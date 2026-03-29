@@ -79,6 +79,8 @@ release: all
 	  echo "  $(BINARY)-windows-amd64-$(VERSION).zip" && \
 	  zip -q $(AGENT)-windows-amd64-$(VERSION).zip   $(AGENT)-windows-amd64.exe  && \
 	  echo "  $(AGENT)-windows-amd64-$(VERSION).zip"
+	@echo "==> Generating checksums..."
+	@cd $(OUTDIR) && sha256sum *.tar.gz *.zip > checksums.txt && echo "  checksums.txt"
 	@echo "==> Done. Artifacts in $(OUTDIR)/"
 
 clean:
