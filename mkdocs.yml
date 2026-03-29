@@ -1,0 +1,74 @@
+site_name: miraeboy
+site_description: 사내 패키지 레지스트리 서버 (Conan v2 + Cargo)
+site_url: https://corbie79.github.io/miraeboy
+repo_name: corbie79/miraeboy
+repo_url: https://github.com/corbie79/miraeboy
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: ko
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 다크 모드로 전환
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 라이트 모드로 전환
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tabs.link
+
+plugins:
+  - search:
+      lang: ko
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - 홈: index.md
+  - 설치:
+    - 서버: installation/server.md
+    - 에이전트: installation/agent.md
+    - CLI (mboy): installation/cli.md
+  - 사용 가이드:
+    - 빠른 시작: guide/quickstart.md
+    - 사용자 관리: guide/user-management.md
+    - 리포지토리 관리: guide/repository-management.md
+    - Conan 레지스트리: guide/conan-registry.md
+    - Cargo 레지스트리: guide/cargo-registry.md
+    - 빌드 시스템: guide/build-system.md
+    - Git 레시피 동기화: guide/git-sync.md
+  - 설정:
+    - config.yaml 레퍼런스: configuration/config-yaml.md
+    - S3 스토리지: configuration/s3-storage.md
+    - OIDC SSO: configuration/oidc-sso.md
+  - CLI 레퍼런스:
+    - mboy 명령어: cli/reference.md
+  - API 레퍼런스:
+    - REST API: api/rest-api.md
+  - 배포:
+    - 프로덕션 배포: deploy/production.md
