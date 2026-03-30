@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strconv"
 
 	"github.com/corbie79/miraeboy/internal/storage"
 )
@@ -16,6 +17,27 @@ var reservedRepoNames = map[string]bool{
 	"_":     true,
 	"repos": true,
 	"conan": true,
+}
+
+// pageParams parses ?page=N&limit=N query parameters.
+// Returns page (1-based) and limit with sensible defaults and caps.
+func pageParams(r *http.Request) (page, limit int) {
+	page = 1
+	limit = 50
+	if v := r.URL.Query().Get("page"); v != "" {
+		if n, _ := strconv.Atoi(v); n > 0 {
+			page = n
+		}
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, _ := strconv.Atoi(v); n > 0 {
+			if n > 500 {
+				n = 500
+			}
+			limit = n
+		}
+	}
+	return
 }
 
 // ─── request / response types ─────────────────────────────────────────────────
@@ -156,7 +178,25 @@ func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
 	if filtered == nil {
 		filtered = []repoResp{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"repositories": filtered})
+	page, limit := pageParams(r)
+	total := len(filtered)
+	offset := (page - 1) * limit
+	if offset < len(filtered) {
+		end := offset + limit
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+		filtered = filtered[offset:end]
+	} else {
+		filtered = []repoResp{}
+	}
+	pages := (total + limit - 1) / limit
+	writeJSON(w, http.StatusOK, map[string]any{
+		"repositories": filtered,
+		"total":        total,
+		"page":         page,
+		"pages":        pages,
+	})
 }
 
 // GET /api/repos/{repository}
@@ -454,4 +494,30 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// POST /api/repos/{repository}/gc?keep=5&dry_run=false  (owner or admin)
+func (s *Server) handleRepoGC(w http.ResponseWriter, r *http.Request) {
+	repoName := r.PathValue("repository")
+
+	keep := 5
+	if v := r.URL.Query().Get("keep"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			keep = n
+		}
+	}
+	dryRun := r.URL.Query().Get("dry_run") == "true"
+
+	result, err := s.store.GCRepo(repoName, keep, dryRun)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"dry_run":           dryRun,
+		"keep":              keep,
+		"revisions_deleted": result.RevisionsDeleted,
+		"packages_deleted":  result.PackagesDeleted,
+	})
 }

@@ -7,12 +7,15 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/corbie79/miraeboy/internal/auth"
 	"github.com/corbie79/miraeboy/internal/config"
+	"github.com/corbie79/miraeboy/internal/metrics"
 	"github.com/corbie79/miraeboy/internal/storage"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Server struct {
@@ -24,6 +27,7 @@ type Server struct {
 	oidc         *oidcProvider
 	builds       *BuildStore  // nil when build system is disabled
 	gitWorkspace string       // base dir for per-repo git clones
+	rateLimiter  *rateLimiter
 }
 
 func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server {
@@ -48,8 +52,18 @@ func NewServer(cfg *config.Config, store *storage.Storage, webFS fs.FS) *Server 
 		s.builds = newBuildStore(cfg.Build.ArtifactsDir)
 		log.Printf("Build system enabled (artifacts: %s)", s.builds.artifactsDir)
 	}
+	if cfg.Server.RateLimit.RequestsPerSecond > 0 {
+		burst := cfg.Server.RateLimit.Burst
+		if burst <= 0 {
+			burst = 50
+		}
+		s.rateLimiter = newRateLimiter(cfg.Server.RateLimit.RequestsPerSecond, burst)
+		log.Printf("Rate limiting enabled: %.1f req/s burst=%d", cfg.Server.RateLimit.RequestsPerSecond, burst)
+	}
 	s.seedUsers()
 	s.seedRepos()
+	// Periodically update repository and user count gauges
+	go s.updateGauges()
 	s.registerRoutes()
 	return s
 }
@@ -96,9 +110,11 @@ func (s *Server) seedRepos() {
 }
 
 func (s *Server) Run(addr string) error {
+	var handler http.Handler = loggingMiddleware(s.mux)
+	handler = rateLimitMiddleware(s.rateLimiter, handler)
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      loggingMiddleware(s.mux),
+		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -136,6 +152,9 @@ func (s *Server) registerRoutes() {
 	// ── Global health check ───────────────────────────────────────────────────
 	m.HandleFunc("GET /ping", s.handlePing)
 
+	// Prometheus metrics
+	m.Handle("GET /metrics", promhttp.Handler())
+
 	// ── Build system (disabled when build.agent_key is empty) ────────────────
 	if s.builds != nil {
 		m.HandleFunc("POST /api/builds",                        s.adminOnly(s.handleTriggerBuild))
@@ -165,6 +184,19 @@ func (s *Server) registerRoutes() {
 	m.HandleFunc("GET /api/repos/{repository}/members", s.requireRepoOwnerOrAdmin(s.handleListMembers))
 	m.HandleFunc("PUT /api/repos/{repository}/members/{username}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleUpdateMember)))
 	m.HandleFunc("DELETE /api/repos/{repository}/members/{username}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleRemoveMember)))
+
+	// ── GC ────────────────────────────────────────────────────────────────────
+	m.HandleFunc("POST /api/repos/{repository}/gc", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleRepoGC)))
+
+	// ── Webhook management ────────────────────────────────────────────────────
+	m.HandleFunc("POST /api/repos/{repository}/webhooks", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleCreateWebhook)))
+	m.HandleFunc("GET /api/repos/{repository}/webhooks", s.requireRepoOwnerOrAdmin(s.handleListWebhooks))
+	m.HandleFunc("PATCH /api/repos/{repository}/webhooks/{id}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleUpdateWebhook)))
+	m.HandleFunc("DELETE /api/repos/{repository}/webhooks/{id}", s.replicaReadOnly(s.requireRepoOwnerOrAdmin(s.handleDeleteWebhook)))
+	m.HandleFunc("POST /api/repos/{repository}/webhooks/{id}/test", s.requireRepoOwnerOrAdmin(s.handleTestWebhook))
+
+	// ── Audit log ─────────────────────────────────────────────────────────────
+	m.HandleFunc("GET /api/audit", s.adminOnly(s.handleListAudit))
 
 	// ── Cargo sparse registry ─────────────────────────────────────────────────
 	// Cargo client config: sparse+http://server:9300/cargo/{repository}/
@@ -254,8 +286,28 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		log.Printf("%s %s %d %s", r.Method, r.URL.Path, rw.status, time.Since(start))
+		duration := time.Since(start)
+		log.Printf("%s %s %d %s", r.Method, r.URL.Path, rw.status, duration)
+		metrics.HTTPRequestsTotal.WithLabelValues(r.Method, strconv.Itoa(rw.status)).Inc()
+		metrics.HTTPRequestDuration.WithLabelValues(r.Method).Observe(duration.Seconds())
 	})
+}
+
+func (s *Server) updateGauges() {
+	update := func() {
+		if repos, err := s.store.ListRepos(); err == nil {
+			metrics.RepositoriesTotal.Set(float64(len(repos)))
+		}
+		if users, err := s.store.ListUsers(); err == nil {
+			metrics.UsersTotal.Set(float64(len(users)))
+		}
+	}
+	update()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		update()
+	}
 }
 
 type responseWriter struct {

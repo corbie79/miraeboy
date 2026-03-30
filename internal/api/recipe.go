@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/corbie79/miraeboy/internal/gitops"
+	"github.com/corbie79/miraeboy/internal/metrics"
+	"github.com/corbie79/miraeboy/internal/storage"
 )
 
 // GET /api/conan/{repository}/v2/conans/search?q=<query>
@@ -24,7 +26,25 @@ func (s *Server) handleRecipeSearch(w http.ResponseWriter, r *http.Request) {
 	if results == nil {
 		results = []string{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+	page, limit := pageParams(r)
+	total := len(results)
+	offset := (page - 1) * limit
+	if offset < len(results) {
+		end := offset + limit
+		if end > len(results) {
+			end = len(results)
+		}
+		results = results[offset:end]
+	} else {
+		results = []string{}
+	}
+	pages := (total + limit - 1) / limit
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results": results,
+		"total":   total,
+		"page":    page,
+		"pages":   pages,
+	})
 }
 
 // GET /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions
@@ -87,6 +107,19 @@ func (s *Server) handleDownloadRecipeFile(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	w.WriteHeader(http.StatusOK)
 	streamBody(w, rc)
+	metrics.ConanDownloadsTotal.WithLabelValues(repo).Inc()
+
+	actor := ""
+	if c := claimsFromContext(r.Context()); c != nil {
+		actor = c.Username
+	}
+	go s.store.AppendAudit(storage.AuditEntry{
+		Action:  "download",
+		Repo:    repo,
+		Package: fmt.Sprintf("%s/%s@%s/%s", name, version, namespace, channel),
+		Username: actor,
+		IP:      r.RemoteAddr,
+	})
 }
 
 // PUT /api/conan/{repository}/v2/conans/{name}/{version}/{namespace}/{channel}/revisions/{rrev}/files/{filename...}
@@ -117,6 +150,21 @@ func (s *Server) handleUploadRecipeFile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+	metrics.ConanUploadsTotal.WithLabelValues(repo).Inc()
+
+	actor := ""
+	if c := claimsFromContext(r.Context()); c != nil {
+		actor = c.Username
+	}
+	pkg := fmt.Sprintf("%s/%s@%s/%s", name, version, namespace, channel)
+	go s.store.AppendAudit(storage.AuditEntry{
+		Action:  "upload",
+		Repo:    repo,
+		Package: pkg,
+		Username: actor,
+		IP:      r.RemoteAddr,
+	})
+	go s.DispatchWebhook(repo, "package.upload", pkg, actor)
 
 	// Async git sync — fire and forget; errors are logged but don't affect the response.
 	go s.syncRecipeFileToGit(repo, name, version, namespace, channel, rrev, filename, body)

@@ -69,13 +69,21 @@ type S3Config struct {
 	Region          string `yaml:"region"`
 }
 
+// RateLimitConfig controls per-IP request rate limiting.
+// Set RequestsPerSecond to 0 to disable rate limiting.
+type RateLimitConfig struct {
+	RequestsPerSecond float64 `yaml:"requests_per_second"` // sustained rate (0 = disabled)
+	Burst             int     `yaml:"burst"`               // max burst size (default: 50)
+}
+
 type ServerConfig struct {
-	Address           string   `yaml:"address"`
-	StoragePath       string   `yaml:"storage_path"`
-	NodeRole          string   `yaml:"node_role"`          // "primary" (default) or "replica"
-	ArtifactoryCompat bool     `yaml:"artifactory_compat"` // also register /artifactory/api/conan/... routes
-	S3                S3Config `yaml:"s3"`
-	GitWorkspace      string   `yaml:"git_workspace"` // base dir for per-repo git clones (default: ./git-workspace)
+	Address           string          `yaml:"address"`
+	StoragePath       string          `yaml:"storage_path"`
+	NodeRole          string          `yaml:"node_role"`          // "primary" (default) or "replica"
+	ArtifactoryCompat bool            `yaml:"artifactory_compat"` // also register /artifactory/api/conan/... routes
+	S3                S3Config        `yaml:"s3"`
+	GitWorkspace      string          `yaml:"git_workspace"` // base dir for per-repo git clones (default: ./git-workspace)
+	RateLimit         RateLimitConfig `yaml:"rate_limit"`
 }
 
 // BuildConfig holds the integrated build server settings.

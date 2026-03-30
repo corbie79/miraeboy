@@ -256,6 +256,53 @@ func CmdRepoDelete(client *Client, p *Printer, args []string) error {
 	return nil
 }
 
+// ─── repo gc ──────────────────────────────────────────────────────────────────
+
+// CmdRepoGC runs garbage collection on a repository.
+//
+//	mboy repo gc <name> [--keep N] [--dry-run]
+func CmdRepoGC(client *Client, p *Printer, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("사용법: mboy repo gc <name> [--keep N] [--dry-run]")
+	}
+	fs := flag.NewFlagSet("repo gc", flag.ContinueOnError)
+	keep := fs.Int("keep", 5, "유지할 최신 리비전 수")
+	dryRun := fs.Bool("dry-run", false, "실제 삭제 없이 결과만 확인")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	repoName := args[0]
+
+	path := fmt.Sprintf("/api/repos/%s/gc?keep=%d", repoName, *keep)
+	if *dryRun {
+		path += "&dry_run=true"
+	}
+
+	data, err := client.Post(path, nil)
+	if err != nil {
+		return err
+	}
+
+	if p.jsonMode {
+		p.Raw(data)
+		return nil
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return err
+	}
+
+	if *dryRun {
+		fmt.Printf("[dry-run] 삭제될 리비전: %.0f개, 패키지: %.0f개\n",
+			resp["revisions_deleted"], resp["packages_deleted"])
+	} else {
+		fmt.Printf("GC 완료: 리비전 %.0f개, 패키지 %.0f개 삭제됨\n",
+			resp["revisions_deleted"], resp["packages_deleted"])
+	}
+	return nil
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 func splitComma(s string) []string {
