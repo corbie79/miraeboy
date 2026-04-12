@@ -460,6 +460,92 @@ func (s *Storage) Search(repo, query string) ([]string, error) {
 	return results, nil
 }
 
+// ─── GC ───────────────────────────────────────────────────────────────────────
+
+// GCResult holds the results of a GC operation.
+type GCResult struct {
+	RevisionsDeleted int `json:"revisions_deleted"`
+	PackagesDeleted  int `json:"packages_deleted"`
+}
+
+// GCRepo removes old recipe revisions (and their packages) keeping only the
+// latest `keep` revisions per recipe reference. If dryRun is true, nothing
+// is deleted and the result just reports what would be removed.
+func (s *Storage) GCRepo(repo string, keep int, dryRun bool) (GCResult, error) {
+	if keep <= 0 {
+		keep = 5
+	}
+	s.mu.RLock()
+	keys, err := s.b.List(repo + "/")
+	s.mu.RUnlock()
+	if err != nil {
+		return GCResult{}, err
+	}
+
+	// Group revision keys by recipe reference (name/version/ns/ch)
+	type refKey struct{ name, version, ns, ch string }
+	refRevs := make(map[refKey][]string) // refKey → []rrev
+
+	for _, key := range keys {
+		rel := strings.TrimPrefix(key, repo+"/")
+		parts := strings.Split(rel, "/")
+		// minimal path: name/version/ns/ch/<rrev>/...
+		if len(parts) < 5 || parts[0] == "_" {
+			continue
+		}
+		if strings.Contains(parts[0], ".") {
+			continue
+		}
+		rk := refKey{parts[0], parts[1], parts[2], parts[3]}
+		rrev := parts[4]
+		if rrev == "packages" || rrev == "recipe_revisions.json" || rrev == "" {
+			continue
+		}
+		// Collect unique rrevs
+		found := false
+		for _, r := range refRevs[rk] {
+			if r == rrev {
+				found = true
+				break
+			}
+		}
+		if !found {
+			refRevs[rk] = append(refRevs[rk], rrev)
+		}
+	}
+
+	var result GCResult
+
+	for rk, rrevs := range refRevs {
+		// Get ordered revisions from the revisions file
+		revKey := recipeRevKey(repo, rk.name, rk.version, rk.ns, rk.ch)
+		s.mu.RLock()
+		orderedRevs, _ := readRevisions(s.b, revKey)
+		s.mu.RUnlock()
+
+		if len(orderedRevs) <= keep {
+			continue // nothing to remove
+		}
+
+		_ = rrevs // use the collected rrevs for counting
+		toDelete := orderedRevs[keep:] // keep oldest at end, newest at start
+		result.RevisionsDeleted += len(toDelete)
+
+		if !dryRun {
+			for _, rev := range toDelete {
+				prefix := recipeRevDirPrefix(repo, rk.name, rk.version, rk.ns, rk.ch, rev.Revision)
+				s.mu.Lock()
+				_ = s.b.DeletePrefix(prefix)
+				_ = removeRevision(s.b, revKey, rev.Revision)
+				s.mu.Unlock()
+				result.PackagesDeleted++ // rough count
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // listFilesUnderPrefix returns only the direct children (non-recursive) of prefix.

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/corbie79/miraeboy/internal/auth"
+	"github.com/corbie79/miraeboy/internal/metrics"
 	"github.com/corbie79/miraeboy/internal/storage"
 )
 
@@ -134,16 +135,26 @@ func (s *Server) handleCargoIndexEntry(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCargoSearch(w http.ResponseWriter, r *http.Request) {
 	repo := r.PathValue("repository")
 	query := r.URL.Query().Get("q")
-	perPage := 10
 
 	results, err := s.store.SearchCargo(repo, query)
 	if err != nil {
 		cargoError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if len(results) > perPage {
-		results = results[:perPage]
+
+	page, limit := pageParams(r)
+	total := len(results)
+	offset := (page - 1) * limit
+	if offset < len(results) {
+		end := offset + limit
+		if end > len(results) {
+			end = len(results)
+		}
+		results = results[offset:end]
+	} else {
+		results = nil
 	}
+	pages := (total + limit - 1) / limit
 
 	type crateResult struct {
 		Name        string `json:"name"`
@@ -157,7 +168,11 @@ func (s *Server) handleCargoSearch(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"crates": crates,
-		"meta":   map[string]int{"total": len(crates)},
+		"meta": map[string]any{
+			"total": total,
+			"page":  page,
+			"pages": pages,
+		},
 	})
 }
 
@@ -285,6 +300,21 @@ func (s *Server) handleCargoPublish(w http.ResponseWriter, r *http.Request) {
 			"other":              []string{},
 		},
 	})
+	metrics.CargoPublishesTotal.WithLabelValues(repo).Inc()
+
+	actor := ""
+	if c := claimsFromContext(r.Context()); c != nil {
+		actor = c.Username
+	}
+	pkg := meta.Name + "@" + meta.Vers
+	go s.store.AppendAudit(storage.AuditEntry{
+		Action:  "cargo.publish",
+		Repo:    repo,
+		Package: pkg,
+		Username: actor,
+		IP:      r.RemoteAddr,
+	})
+	go s.DispatchWebhook(repo, "cargo.publish", pkg, actor)
 }
 
 // GET /cargo/{repo}/api/v1/crates/{name}/{version}/download
@@ -308,6 +338,19 @@ func (s *Server) handleCargoDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	streamBody(w, rc)
+	metrics.CargoDownloadsTotal.WithLabelValues(repo).Inc()
+
+	actor := ""
+	if c := claimsFromContext(r.Context()); c != nil {
+		actor = c.Username
+	}
+	go s.store.AppendAudit(storage.AuditEntry{
+		Action:  "cargo.download",
+		Repo:    repo,
+		Package: name + "@" + version,
+		Username: actor,
+		IP:      r.RemoteAddr,
+	})
 }
 
 // DELETE /cargo/{repo}/api/v1/crates/{name}/{version}/yank
@@ -321,6 +364,20 @@ func (s *Server) handleCargoYank(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+
+	actor := ""
+	if c := claimsFromContext(r.Context()); c != nil {
+		actor = c.Username
+	}
+	pkg := name + "@" + version
+	go s.store.AppendAudit(storage.AuditEntry{
+		Action:  "cargo.yank",
+		Repo:    repo,
+		Package: pkg,
+		Username: actor,
+		IP:      r.RemoteAddr,
+	})
+	go s.DispatchWebhook(repo, "cargo.yank", pkg, actor)
 }
 
 // PUT /cargo/{repo}/api/v1/crates/{name}/{version}/unyank
@@ -334,6 +391,20 @@ func (s *Server) handleCargoUnyank(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+
+	actor := ""
+	if c := claimsFromContext(r.Context()); c != nil {
+		actor = c.Username
+	}
+	pkg := name + "@" + version
+	go s.store.AppendAudit(storage.AuditEntry{
+		Action:  "cargo.unyank",
+		Repo:    repo,
+		Package: pkg,
+		Username: actor,
+		IP:      r.RemoteAddr,
+	})
+	go s.DispatchWebhook(repo, "cargo.unyank", pkg, actor)
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────

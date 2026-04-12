@@ -34,11 +34,29 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	page, limit := pageParams(r)
+	total := len(users)
+	offset := (page - 1) * limit
+	if offset < len(users) {
+		end := offset + limit
+		if end > len(users) {
+			end = len(users)
+		}
+		users = users[offset:end]
+	} else {
+		users = []storage.UserRecord{}
+	}
+	pages := (total + limit - 1) / limit
 	resp := make([]userResp, len(users))
 	for i, u := range users {
 		resp[i] = toUserResp(u)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": resp})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"users": resp,
+		"total": total,
+		"page":  page,
+		"pages": pages,
+	})
 }
 
 // GET /api/users/{username}  (admin only)

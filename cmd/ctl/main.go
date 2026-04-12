@@ -121,6 +121,8 @@ func main() {
 			runErr = cli.CmdRepoUpdate(client, printer, rest)
 		case "delete":
 			runErr = cli.CmdRepoDelete(client, printer, rest)
+		case "gc":
+			runErr = cli.CmdRepoGC(client, printer, rest)
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown repo subcommand: %q\n", sub)
 			repoUsage()
@@ -178,6 +180,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Unknown build subcommand: %q\n", sub)
 			os.Exit(1)
 		}
+
+	case "audit":
+		runErr = cli.CmdAuditList(client, printer, rest)
+
+	case "webhook":
+		runErr = cli.CmdWebhook(client, printer, sub, rest)
 
 	case "completion":
 		shell := sub
